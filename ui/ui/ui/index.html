@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="LAN Chat – Nhắn tin mã hóa end-to-end qua mạng LAN và ký số PDF chuẩn quốc tế.">
+    <title>LAN Chat – Nhắn tin & Ký số PDF Bảo mật</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <!-- Thanh điều hướng -->
+    <nav class="navbar" id="navbar">
+        <div class="nav-container">
+            <a href="#home" class="logo">
+                <span class="logo-mark">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="4" y="10" width="16" height="11" rx="2.5" />
+                        <path d="M8 10V7a4 4 0 0 1 8 0v3" />
+                    </svg>
+                </span>
+                <span class="brand">LAN Chat</span>
+            </a>
+            <button class="nav-toggle" id="navToggle" aria-label="Mở menu" aria-expanded="false">
+                <span></span><span></span><span></span>
+            </button>
+            <ul class="nav-links" id="navLinks">
+                <li><a href="#features">Tính năng</a></li>
+                <li><a href="#signing">Ký số PDF</a></li>
+                <li><a href="#workflow">Ký nối tiếp</a></li>
+                <li><a href="#security">Bảo mật</a></li>
+                <li><a href="#info">Thông tin</a></li>
+                <li><a href="#contact">Liên hệ</a></li>
+                <li><button class="theme-btn" id="themeBtn" aria-label="Đổi giao diện sáng/tối">◐</button></li>
+            </ul>
+        </div>
+    </nav>
+
+    <!-- Phần đầu trang -->
+    <header id="home" class="hero">
+        <div class="hero-content">
+            <span class="eyebrow">Truyền thông nội bộ · Tài liệu số · Pháp lý</span>
+            <h1>Nhắn tin mã hóa qua LAN<br>và <span class="highlight">ký số PDF</span> chuẩn quốc tế</h1>
+            <p class="subtitle">LAN Chat là ứng dụng nhắn tin nội bộ và xử lý tài liệu số. Tin nhắn được mã hóa
+                end-to-end, mỗi tài khoản có khóa và chứng thư số riêng, và file PDF đã ký được Adobe Acrobat
+                Reader và Foxit Reader công nhận.</p>
+            <div class="hero-buttons">
+                <a href="Ứng dụng Chat LAN Bảo mật &amp; Ký số PDF.html" class="btn primary">Mở ứng dụng</a>
+                <a href="#features" class="btn secondary">Khám phá tính năng</a>
+                <a href="#demo" class="btn secondary">Thử đặt chữ ký</a>
+            </div>
+            <ul class="hero-stats">
+                <li><strong>E2E</strong><span>RSA‑4096 + AES‑256‑GCM</span></li>
+                <li><strong>SHA‑256</strong><span>Băm mật khẩu</span></li>
+                <li><strong>PAdES</strong><span>Chữ ký số PDF</span></li>
+            </ul>
+        </div>
+
+        <div class="hero-visual" aria-hidden="true">
+            <div class="mock-window">
+                <div class="mock-bar"><i></i><i></i><i></i><span>LAN Chat</span></div>
+                <div class="mock-body">
+                    <div class="bubble in">Anh duyệt giúp em hợp đồng nhé 📄</div>
+                    <div class="file-chip">
+                        <span class="file-ico">PDF</span>
+                        <div><b>HopDong_2026.pdf</b><small>Đã ký bởi 1 người · Toàn vẹn</small></div>
+                    </div>
+                    <div class="bubble out">Đã ký xong, chuyển cấp tiếp theo ✅</div>
+                    <div class="lock-line"><span class="dot"></span>Mã hóa end‑to‑end · 192.168.1.24</div>
+                </div>
+            </div>
+            <div class="badge-float">
+                <span class="tick">✓</span>
+                <div><b>Chữ ký hợp lệ</b><small>Signed and all signatures are valid</small></div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Tính năng chính -->
+    <section id="features" class="section">
+        <div class="container">
+            <div class="section-header">
+                <span class="eyebrow">Tính năng</span>
+                <h2>Năm nhóm tính năng chính</h2>
+                <p>Từ tin nhắn hằng ngày đến hợp đồng cần nhiều cấp phê duyệt.</p>
+            </div>
+            <div class="features-grid">
+                <article class="feature-card reveal">
+                    <div class="feature-icon">💬</div>
+                    <h3>Nhắn tin & danh bạ an toàn</h3>
+                    <p>Gửi và nhận tin nhắn qua mạng LAN, mã hóa và giải mã end-to-end. Quản lý danh bạ, xem trạng thái
+                        kết nối và thêm
+                        liên hệ bằng cách quét mã QR.</p>
+                    <ul class="tags">
+                        <li>E2E</li>
+                        <li>QR Code</li>
+                        <li>Trạng thái online</li>
+                    </ul>
+                </article>
+                <article class="feature-card reveal">
+                    <div class="feature-icon">🔑</div>
+                    <h3>Tài khoản & khóa</h3>
+                    <p>Mật khẩu được băm bằng <b>SHA‑256</b> khi đăng nhập. Mỗi tài khoản tự động có cặp khóa
+                        Private/Public và chứng thư số X.509 riêng để mã hóa và ký số.</p>
+                    <ul class="tags">
+                        <li>SHA‑256</li>
+                        <li>RSA</li>
+                        <li>X.509</li>
+                    </ul>
+                </article>
+                <article class="feature-card reveal">
+                    <div class="feature-icon">✍️</div>
+                    <h3>Ký số & chữ ký cá nhân</h3>
+                    <p>Ký trực tiếp bằng khóa cá nhân, kèm chữ ký đồ họa vẽ tay hoặc ảnh con dấu. Kéo thả chữ ký đến
+                        bất kỳ vị trí nào, trên bất kỳ trang nào.</p>
+                    <ul class="tags">
+                        <li>Vẽ tay</li>
+                        <li>Con dấu</li>
+                        <li>Kéo – thả</li>
+                    </ul>
+                </article>
+                <article class="feature-card reveal">
+                    <div class="feature-icon">🔁</div>
+                    <h3>Ký nối tiếp nhiều người</h3>
+                    <p>Nhờ <b>Incremental Update</b> (cập nhật tăng dần), một file PDF có thể qua nhiều cấp phê duyệt.
+                        Mỗi lần ký chỉ thêm dữ liệu vào cuối file nên các chữ ký trước vẫn hợp lệ.</p>
+                    <ul class="tags">
+                        <li>Incremental Update</li>
+                        <li>Nhiều cấp</li>
+                    </ul>
+                </article>
+                <article class="feature-card reveal">
+                    <div class="feature-icon">🛡️</div>
+                    <h3>Kiểm tra & tương thích chuẩn</h3>
+                    <p>Xem và trích xuất thông tin chữ ký ngay trong ứng dụng. Adobe Acrobat Reader và Foxit Reader
+                        hiển thị danh sách người ký, trạng thái toàn vẹn và <b>tick xanh hợp lệ</b>.</p>
+                    <ul class="tags">
+                        <li>Adobe</li>
+                        <li>Foxit</li>
+                        <li>PAdES</li>
+                    </ul>
+                </article>
+                <article class="feature-card reveal">
+                    <div class="feature-icon">🌐</div>
+                    <h3>Hoàn toàn cục bộ</h3>
+                    <p>Không cần Internet, không có máy chủ trung gian. Tin nhắn và tài liệu chỉ đi trong mạng nội bộ
+                        của bạn.</p>
+                    <ul class="tags">
+                        <li>TCP</li>
+                        <li>UDP Broadcast</li>
+                    </ul>
+                </article>
+            </div>
+        </div>
+    </section>
+
+    <!-- Ký số PDF + demo -->
+    <section id="signing" class="section alt">
+        <div class="container split">
+            <div class="split-text">
+                <span class="eyebrow">Ký số PDF</span>
+                <h2>Chữ ký có giá trị pháp lý, đặt ở đúng chỗ bạn cần</h2>
+                <p>Mỗi chữ ký có hai lớp:</p>
+                <ol class="numbered">
+                    <li><b>Chữ ký số (mật mã)</b><span>Băm tài liệu, ký bằng khóa riêng và nhúng chứng thư số của tài
+                            khoản
+                            theo chuẩn PAdES / CMS.</span></li>
+                    <li><b>Chữ ký đồ họa (hiển thị)</b><span>Chữ ký vẽ tay hoặc ảnh con dấu, kèm họ tên và thời gian ký,
+                            hiển thị tại vị trí bạn chọn.</span></li>
+                    <li><b>Kiểm tra trong ứng dụng</b><span>Xem người ký, thời gian ký, thuật toán, số serial chứng thư
+                            và trạng thái
+                            toàn vẹn của từng chữ ký.</span></li>
+                </ol>
+            </div>
+
+            <div id="demo" class="demo reveal">
+                <div class="demo-head">
+                    <b>Thử ngay: vẽ chữ ký và kéo vào trang</b>
+                    <div class="demo-tabs" role="tablist">
+                        <button class="active" data-page="1">Trang 1</button>rr
+                        <button data-page="2">Trang 2</button>
+                    </div>
+                </div>
+                <div class="demo-body">
+                    <div class="pad-wrap">
+                        <canvas id="sigPad" width="320" height="130" aria-label="Khung vẽ chữ ký"></canvas>
+                        <div class="pad-actions">
+                            <button class="btn ghost sm" id="clearPad">Xóa</button>
+                            <button class="btn ghost sm" id="stampPad">Dùng con dấu</button>
+                        </div>
+                        <p class="hint">Vẽ chữ ký vào khung trên, sau đó kéo khối chữ ký trên trang tài liệu.</p>
+                    </div>
+                    <div class="paper" id="paper">
+                        <div class="paper-lines" id="paperLines"></div>
+                        <div class="sig-box" id="sigBox" tabindex="0" aria-label="Khối chữ ký, kéo để di chuyển">
+                            <img id="sigImg" alt="">
+                            <span class="sig-meta">Ký số bởi: <b>Nguyễn Văn An</b><br><span id="sigTime"></span></span>
+                        </div>
+                    </div>
+                </div>
+                <div class="demo-foot">
+                    <span id="sigPos">Trang 1 · x: 0, y: 0</span>
+                    <button class="btn primary sm" id="signBtn">Ký tài liệu</button>
+                </div>
+                <div class="toast" id="toast" role="status"></div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Ký nối tiếp -->
+    <section id="workflow" class="section">
+        <div class="container">
+            <div class="section-header">
+                <span class="eyebrow">Incremental Update</span>
+                <h2>Luân chuyển và ký nối tiếp nhiều cấp</h2>
+                <p>Mỗi người ký chỉ <b>nối thêm</b> một phần mới vào cuối file. Phần dữ liệu đã ký trước đó giữ nguyên
+                    từng byte, nên mọi chữ ký cũ vẫn hợp lệ.</p>
+            </div>
+
+            <div class="pdf-stack reveal" aria-label="Cấu trúc file PDF sau nhiều lần ký">
+                <div class="layer base"><span>Bản gốc</span><small>Nội dung tài liệu · %%EOF</small></div>
+                <div class="layer l1"><span>Cập nhật #1</span><small>Chữ ký Nhân viên · %%EOF</small></div>
+                <div class="layer l2"><span>Cập nhật #2</span><small>Chữ ký Trưởng phòng · %%EOF</small></div>
+                <div class="layer l3"><span>Cập nhật #3</span><small>Chữ ký Giám đốc · %%EOF</small></div>
+            </div>
+
+            <div class="timeline">
+                <div class="t-step reveal">
+                    <div class="t-num">1</div>
+                    <h4>Soạn thảo</h4>
+                    <p>Nhân viên tạo PDF, ký và gửi qua LAN Chat.</p>
+                </div>
+                <div class="t-step reveal">
+                    <div class="t-num">2</div>
+                    <h4>Kiểm tra</h4>
+                    <p>Trưởng phòng kiểm tra chữ ký trước rồi ký tiếp.</p>
+                </div>
+                <div class="t-step reveal">
+                    <div class="t-num">3</div>
+                    <h4>Phê duyệt</h4>
+                    <p>Giám đốc ký cấp cuối. File có đủ 3 chữ ký hợp lệ.</p>
+                </div>
+                <div class="t-step reveal">
+                    <div class="t-num">4</div>
+                    <h4>Lưu trữ</h4>
+                    <p>Mở bằng Adobe hoặc Foxit để thấy đủ danh sách người ký.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Kiểm tra chữ ký -->
+    <section id="verify" class="section alt">
+        <div class="container split reverse">
+            <div class="viewer reveal" aria-label="Minh họa bảng chữ ký trong trình đọc PDF">
+                <div class="viewer-banner"><span class="tick">✓</span>Signed and all signatures are valid.</div>
+                <div class="viewer-panel">
+                    <div class="sig-row"><span class="tick sm">✓</span>
+                        <div><b>Rev. 1: Nguyễn Văn An</b><small>Nhân viên · 09:12 15/10/2026</small></div>
+                    </div>
+                    <div class="sig-row"><span class="tick sm">✓</span>
+                        <div><b>Rev. 2: Trần Thị Bình</b><small>Trưởng phòng · 14:40 15/10/2026</small></div>
+                    </div>
+                    <div class="sig-row"><span class="tick sm">✓</span>
+                        <div><b>Rev. 3: Lê Minh Cường</b><small>Giám đốc · 08:05 16/10/2026</small></div>
+                    </div>
+                </div>
+            </div>
+            <div class="split-text">
+                <span class="eyebrow">Tương thích chuẩn quốc tế</span>
+                <h2>Tick xanh trên Adobe Acrobat Reader và Foxit Reader</h2>
+                <p>Chữ ký theo chuẩn <b>PAdES (ETSI EN 319 142)</b> nên các trình đọc PDF phổ biến tự nhận ra:</p>
+                <ul class="checks">
+                    <li>Danh sách đầy đủ người ký và thời gian ký</li>
+                    <li>Tài liệu không bị sửa đổi sau khi ký</li>
+                    <li>Từng phiên bản đã ký, có thể xem lại</li>
+                    <li>Trạng thái tin cậy với biểu tượng tick xanh hợp lệ</li>
+                </ul>
+                <p class="note">Lưu ý: tick xanh xuất hiện khi chứng thư gốc (Root CA) của LAN Chat được thêm vào danh
+                    sách tin cậy của trình đọc (Adobe: <i>Trusted Certificates</i>, Foxit: <i>Trusted Certificates</i>).
+                    Ứng dụng có
+                    nút xuất chứng thư gốc để làm việc này.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Bảo mật -->
+    <section id="security" class="section dark">
+        <div class="container">
+            <div class="section-header">
+                <span class="eyebrow">Cơ chế bảo mật</span>
+                <h2>Cách tin nhắn và tài liệu được bảo vệ</h2>
+                <p>Ghép mã hóa bất đối xứng với mã hóa đối xứng, dùng tiêu chuẩn mật mã phổ biến.</p>
+            </div>
+            <div class="security-flow">
+                <div class="step reveal">
+                    <div class="step-num">1</div>
+                    <h4>Đăng nhập</h4>
+                    <p>Mật khẩu được băm SHA‑256 ngay khi nhập, không lưu bản rõ.</p>
+                </div>
+                <div class="step reveal">
+                    <div class="step-num">2</div>
+                    <h4>Tạo khóa</h4>
+                    <p>Mỗi tài khoản có cặp khóa RSA và chứng thư X.509. Khóa riêng không bao giờ rời máy.</p>
+                </div>
+                <div class="step reveal">
+                    <div class="step-num">3</div>
+                    <h4>Trao đổi</h4>
+                    <p>Khóa công khai được trao qua mã QR, đối chiếu bằng vân tay SHA‑256.</p>
+                </div>
+                <div class="step reveal">
+                    <div class="step-num">4</div>
+                    <h4>Mã hóa</h4>
+                    <p>Tạo khóa AES‑256‑GCM tạm thời, rồi bọc khóa đó bằng RSA‑OAEP của người nhận.</p>
+                </div>
+                <div class="step reveal">
+                    <div class="step-num">5</div>
+                    <h4>Ký số</h4>
+                    <p>Băm tài liệu bằng SHA‑256, ký bằng khóa riêng và nhúng chữ ký CMS vào PDF.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Thông tin hệ thống -->
+    <section id="info" class="section">
+        <div class="container">
+            <div class="section-header">
+                <span class="eyebrow">Thông tin</span>
+                <h2>Thông tin ứng dụng</h2>
+                <p>Các thông số chính của dự án.</p>
+            </div>
+            <div class="info-grid">
+                <div class="info-card reveal">
+                    <h3>📋 Thông tin chung</h3>
+                    <ul class="info-list">
+                        <li><span>Tên dự án</span><b>LAN Chat (LAN Secure Messenger)</b></li>
+                        <li><span>Phiên bản</span><b>v2.4.1</b></li>
+                        <li><span>Ngôn ngữ</span><b>Python / Tkinter</b></li>
+                        <li><span>Giao thức mạng</span><b>TCP + UDP Broadcast</b></li>
+                        <li><span>Môi trường</span><b>Mạng nội bộ LAN</b></li>
+                        <li><span>Trạng thái</span><b>Đang phát triển</b></li>
+                    </ul>
+                </div>
+                <div class="info-card reveal">
+                    <h3>🔐 Mật mã</h3>
+                    <ul class="info-list">
+                        <li><span>Khóa bất đối xứng</span><b>RSA‑4096</b></li>
+                        <li><span>Mã hóa tin nhắn</span><b>AES‑256‑GCM</b></li>
+                        <li><span>Băm mật khẩu</span><b>SHA‑256</b></li>
+                        <li><span>Chứng thư số</span><b>X.509 v3</b></li>
+                        <li><span>Chuẩn chữ ký</span><b>PAdES / CMS</b></li>
+                        <li><span>Ký nối tiếp</span><b>Incremental Update</b></li>
+                    </ul>
+                </div>
+                <div class="info-card reveal">
+                    <h3>👤 Người phát triển</h3>
+                    <ul class="info-list">
+                        <li><span>Họ tên</span><b>Nguyễn Văn An</b></li>
+                        <li><span>Tuổi</span><b>22</b></li>
+                        <li><span>Vai trò</span><b>Nhà phát triển</b></li>
+                        <li><span>Địa chỉ IP mẫu</span><b>192.168.1.x</b></li>
+                        <li><span>Cổng mặc định</span><b>54321</b></li>
+                        <li><span>Tình trạng</span><b>Hoạt động</b></li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Liên hệ -->
+    <section id="contact" class="section alt">
+        <div class="container">
+            <div class="section-header">
+                <span class="eyebrow">Liên hệ</span>
+                <h2>Thông tin liên hệ</h2>
+                <p>Cùng kết nối và phát triển dự án.</p>
+            </div>
+            <div class="contact-box reveal">
+                <div class="contact-item"><span class="label">👤 Họ và tên</span><span class="value">Nguyễn Văn
+                        An</span></div>
+                <div class="contact-item"><span class="label">📍 Địa phương</span><span class="value">Thành phố Thanh
+                        Hóa, Tỉnh Thanh Hóa</span></div>
+                <div class="contact-item"><span class="label">📧 Email</span><span
+                        class="value">nvanan@example.com</span></div>
+                <div class="contact-item"><span class="label">🔗 Dự án</span><span class="value">LAN Chat: nhắn tin mã
+                        hóa & ký số PDF bảo mật</span></div>
+            </div>
+        </div>
+    </section>
+
+    <footer>
+        <p>© 2026 LAN Chat · Nhắn tin mã hóa và ký số PDF trong mạng nội bộ</p>
+    </footer>
+
+    <script src="script.js"></script>
+</body>
+
+</html>

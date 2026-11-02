@@ -1,0 +1,2465 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ứng dụng Chat LAN Bảo mật &amp; Ký số PDF</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: #2563eb;
+            --primary-soft: rgba(37, 99, 235, .1);
+            --green: #16a34a;
+            --green-soft: rgba(22, 163, 74, .12);
+            --red: #dc2626;
+            --red-soft: rgba(220, 38, 38, .1);
+            --amber: #d97706;
+            --text: #0f172a;
+            --muted: #5b6b82;
+            --bg: #eef2f8;
+            --panel: #ffffff;
+            --panel-2: #f6f8fc;
+            --border: #e2e8f0;
+            --side: #0f172a;
+            --side-text: #cbd5e1;
+            --paper: #ffffff;
+            --shadow: 0 10px 30px rgba(15, 23, 42, .08);
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root:not([data-theme="light"]) {
+                --primary: #60a5fa; --primary-soft: rgba(96, 165, 250, .14);
+                --green: #4ade80; --green-soft: rgba(74, 222, 128, .13);
+                --red: #f87171; --red-soft: rgba(248, 113, 113, .13);
+                --amber: #fbbf24;
+                --text: #e5ecf6; --muted: #94a3b8;
+                --bg: #080d19; --panel: #111a2c; --panel-2: #0d1526; --border: #22304a;
+                --side: #060b16; --side-text: #94a3b8; --paper: #f8fafc;
+                --shadow: 0 10px 30px rgba(0, 0, 0, .4);
+            }
+        }
+
+        :root[data-theme="dark"] {
+            --primary: #60a5fa; --primary-soft: rgba(96, 165, 250, .14);
+            --green: #4ade80; --green-soft: rgba(74, 222, 128, .13);
+            --red: #f87171; --red-soft: rgba(248, 113, 113, .13);
+            --amber: #fbbf24;
+            --text: #e5ecf6; --muted: #94a3b8;
+            --bg: #080d19; --panel: #111a2c; --panel-2: #0d1526; --border: #22304a;
+            --side: #060b16; --side-text: #94a3b8; --paper: #f8fafc;
+            --shadow: 0 10px 30px rgba(0, 0, 0, .4);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body { height: 100%; }
+        body { font-family: 'Inter', system-ui, sans-serif; background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.5; }
+        button, input, select, textarea { font: inherit; color: inherit; }
+        button { cursor: pointer; }
+        .mono { font-family: 'JetBrains Mono', monospace; }
+        .muted { color: var(--muted); }
+        .hidden { display: none !important; }
+
+        /* ===== Nút & ô nhập ===== */
+        .btn { display: inline-flex; align-items: center; justify-content: center; gap: .45rem; padding: .6rem 1.1rem; border-radius: 9px; border: 1px solid var(--border); background: var(--panel); font-weight: 600; transition: .15s; white-space: nowrap; }
+        .btn:hover { border-color: var(--primary); color: var(--primary); }
+        .btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+        .btn.primary:hover { filter: brightness(1.08); color: #fff; }
+        .btn.green { background: var(--green); border-color: var(--green); color: #fff; }
+        .btn.danger:hover { border-color: var(--red); color: var(--red); }
+        .btn.sm { padding: .35rem .7rem; font-size: .82rem; border-radius: 7px; }
+        .btn.block { width: 100%; }
+        .btn:disabled { opacity: .5; cursor: not-allowed; }
+        .field { display: flex; flex-direction: column; gap: .35rem; margin-bottom: .9rem; }
+        .field label { font-weight: 600; font-size: .82rem; }
+        .input { width: 100%; padding: .65rem .8rem; border-radius: 9px; border: 1px solid var(--border); background: var(--panel-2); outline: none; }
+        .input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-soft); }
+        .chip { display: inline-flex; align-items: center; gap: .3rem; font-size: .72rem; font-weight: 600; padding: .15rem .55rem; border-radius: 999px; background: var(--primary-soft); color: var(--primary); }
+        .chip.green { background: var(--green-soft); color: var(--green); }
+        .chip.red { background: var(--red-soft); color: var(--red); }
+        .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; background: var(--muted); flex: none; }
+        .dot.on { background: var(--green); box-shadow: 0 0 0 3px var(--green-soft); }
+        .dot.busy { background: var(--amber); }
+
+        /* ===== Đăng nhập ===== */
+        .login { min-height: 100%; display: grid; grid-template-columns: 1fr 1fr; }
+        .login-art { background: linear-gradient(150deg, #1e3a8a, #0f172a); color: #e2e8f0; padding: 3rem; display: flex; flex-direction: column; justify-content: space-between; }
+        .login-art h1 { font-size: 2.2rem; line-height: 1.2; margin: 1.5rem 0 1rem; color: #fff; }
+        .login-art ul { display: grid; gap: .8rem; margin-top: 1.5rem; }
+        .login-art li { display: flex; gap: .7rem; align-items: flex-start; }
+        .login-art li span:first-child { width: 30px; height: 30px; border-radius: 8px; background: rgba(255, 255, 255, .1); display: grid; place-items: center; flex: none; }
+        .login-form-wrap { display: grid; place-items: center; padding: 2rem 1rem; }
+        .login-card { width: 100%; max-width: 400px; }
+        .login-card h2 { font-size: 1.5rem; margin-bottom: .3rem; }
+        .seg { display: flex; background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 3px; margin: 1.4rem 0; }
+        .seg button { flex: 1; border: 0; background: none; padding: .5rem; border-radius: 8px; font-weight: 600; color: var(--muted); }
+        .seg button.active { background: var(--panel); color: var(--text); box-shadow: 0 1px 3px rgba(0, 0, 0, .1); }
+        .hash-box { font-size: .72rem; word-break: break-all; padding: .55rem .7rem; border-radius: 8px; background: var(--panel-2); border: 1px dashed var(--border); color: var(--muted); min-height: 2.4rem; }
+        .steps { display: grid; gap: .5rem; margin-top: 1rem; }
+        .steps div { display: flex; gap: .6rem; align-items: center; font-size: .85rem; color: var(--muted); }
+        .steps div.done { color: var(--green); }
+        .steps i { width: 18px; height: 18px; border-radius: 50%; border: 2px solid currentColor; display: grid; place-items: center; font-style: normal; font-size: .65rem; }
+        .logo { display: flex; align-items: center; gap: .6rem; font-weight: 800; font-size: 1.1rem; }
+        .logo-mark { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; background: #2563eb; color: #fff; flex: none; }
+
+        /* ===== Khung chính ===== */
+        .shell { height: 100%; display: grid; grid-template-columns: 232px 1fr; }
+        .side { background: var(--side); color: var(--side-text); display: flex; flex-direction: column; padding: 1.1rem .8rem; gap: 1.3rem; }
+        .side .logo { color: #fff; padding: 0 .4rem; }
+        .nav { display: grid; gap: .2rem; }
+        .nav button { display: flex; align-items: center; gap: .75rem; padding: .62rem .75rem; border-radius: 9px; border: 0; background: none; color: var(--side-text); font-weight: 500; text-align: left; }
+        .nav button:hover { background: rgba(255, 255, 255, .06); color: #fff; }
+        .nav button.active { background: #2563eb; color: #fff; }
+        .nav .ico { width: 20px; text-align: center; }
+        .nav .badge { margin-left: auto; background: #ef4444; color: #fff; font-size: .68rem; border-radius: 999px; padding: 0 .4rem; }
+        .me { margin-top: auto; display: flex; align-items: center; gap: .6rem; padding: .7rem; border-radius: 10px; background: rgba(255, 255, 255, .05); }
+        .me b { color: #fff; display: block; font-size: .88rem; }
+        .me small { font-size: .72rem; }
+        .avatar { width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; color: #fff; flex: none; font-size: .85rem; }
+
+        .main { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+        .topbar { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: .85rem 1.4rem; background: var(--panel); border-bottom: 1px solid var(--border); }
+        .topbar h1 { font-size: 1.1rem; }
+        .topbar .right { display: flex; align-items: center; gap: .6rem; }
+        .net { display: flex; align-items: center; gap: .45rem; font-size: .8rem; color: var(--muted); }
+        .icon-btn { width: 34px; height: 34px; border-radius: 9px; border: 1px solid var(--border); background: var(--panel); display: grid; place-items: center; }
+        .view { flex: 1; min-height: 0; overflow: auto; }
+        .pad { padding: 1.4rem; }
+        .card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; }
+        .card-h { display: flex; justify-content: space-between; align-items: center; gap: .6rem; padding: .85rem 1rem; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+        .card-h h3 { font-size: .95rem; }
+        .card-b { padding: 1rem; }
+
+        /* ===== Tin nhắn ===== */
+        .chat { height: 100%; display: grid; grid-template-columns: 300px 1fr; }
+        .conv-list { border-right: 1px solid var(--border); background: var(--panel); overflow: auto; }
+        .conv-search { padding: .8rem; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--panel); }
+        .conv { display: flex; gap: .7rem; padding: .75rem .9rem; cursor: pointer; border-left: 3px solid transparent; }
+        .conv:hover { background: var(--panel-2); }
+        .conv.active { background: var(--primary-soft); border-left-color: var(--primary); }
+        .conv .meta { min-width: 0; flex: 1; }
+        .conv .row { display: flex; justify-content: space-between; gap: .4rem; }
+        .conv b { font-size: .9rem; }
+        .conv small { color: var(--muted); font-size: .75rem; }
+        .conv p { color: var(--muted); font-size: .8rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .av-wrap { position: relative; }
+        .av-wrap .dot { position: absolute; right: 0; bottom: 0; border: 2px solid var(--panel); width: 11px; height: 11px; box-shadow: none; }
+        .thread { display: flex; flex-direction: column; min-height: 0; }
+        .thread-h { display: flex; justify-content: space-between; align-items: center; padding: .7rem 1.1rem; background: var(--panel); border-bottom: 1px solid var(--border); gap: .6rem; flex-wrap: wrap; }
+        .thread-h .who { display: flex; gap: .7rem; align-items: center; }
+        .thread-h small { color: var(--muted); font-size: .76rem; }
+        .e2e-banner { margin: .8rem auto 0; font-size: .75rem; color: var(--muted); background: var(--panel); border: 1px solid var(--border); padding: .35rem .8rem; border-radius: 999px; }
+        .msgs { flex: 1; overflow: auto; padding: 1rem 1.2rem; display: flex; flex-direction: column; gap: .55rem; }
+        .msg { max-width: 68%; display: flex; flex-direction: column; }
+        .msg.out { align-self: flex-end; align-items: flex-end; }
+        .bubble { white-space: pre-line; padding: .6rem .9rem; border-radius: 14px; background: var(--panel); border: 1px solid var(--border); border-bottom-left-radius: 4px; word-wrap: break-word; }
+        .msg.out .bubble { background: var(--primary); border-color: var(--primary); color: #fff; border-bottom-left-radius: 14px; border-bottom-right-radius: 4px; }
+        .msg .info { font-size: .7rem; color: var(--muted); margin-top: .2rem; display: flex; gap: .35rem; }
+        .cipher { font-size: .68rem; margin-top: .3rem; padding: .4rem .55rem; border-radius: 7px; background: var(--panel-2); border: 1px dashed var(--border); color: var(--muted); word-break: break-all; max-width: 100%; }
+        .show-cipher .cipher { display: block; }
+        .cipher { display: none; }
+        .file-msg { display: flex; gap: .7rem; align-items: center; padding: .7rem .8rem; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; color: var(--text); cursor: pointer; }
+        .file-msg:hover { border-color: var(--primary); }
+        .pdf-ico { background: #dc2626; color: #fff; font-size: .65rem; font-weight: 800; padding: .5rem .4rem; border-radius: 6px; }
+        .file-msg small { display: block; font-size: .74rem; color: var(--green); }
+        .composer { display: flex; gap: .5rem; padding: .8rem 1rem; background: var(--panel); border-top: 1px solid var(--border); }
+        .msg .who { font-size: .72rem; font-weight: 600; color: var(--primary); margin-bottom: .15rem; }
+        .typing .bubble { display: flex; gap: 4px; padding: .75rem .9rem; }
+        .typing .bubble span { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); animation: blink 1.2s infinite; }
+        .typing .bubble span:nth-child(2) { animation-delay: .2s; }
+        .typing .bubble span:nth-child(3) { animation-delay: .4s; }
+        @keyframes blink { 0%, 80%, 100% { opacity: .25; } 40% { opacity: 1; } }
+        .day { align-self: center; font-size: .72rem; color: var(--muted); }
+
+        .form-err { color: var(--red); font-size: .82rem; font-weight: 600; margin-bottom: .7rem; }
+        .field small { color: var(--muted); font-size: .75rem; }
+        .link-btn { border: 0; background: none; color: var(--primary); font-weight: 600; padding: 0; }
+        .social { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin-bottom: 1rem; align-items: start; }
+        .soc-row { display: flex; align-items: center; gap: .65rem; padding: .6rem 1rem; border-bottom: 1px solid var(--border); }
+        .soc-row:last-child { border-bottom: 0; }
+        .soc-row .grow { flex: 1; min-width: 0; }
+        .soc-row small { display: block; color: var(--muted); font-size: .75rem; }
+        .soc-row .acts { display: flex; gap: .3rem; flex: none; }
+        .soc-empty { padding: 1rem; color: var(--muted); font-size: .84rem; }
+        .scan-video { width: 100%; max-height: 300px; border-radius: 12px; background: var(--side); display: block; }
+        .qr-img { width: 240px; max-width: 100%; display: block; margin: .3rem auto; border-radius: 10px; image-rendering: pixelated; }
+        .check-row { display: flex; gap: .55rem; align-items: center; padding: .3rem 0; }
+
+        /* ===== Danh bạ ===== */
+        .toolbar { display: flex; gap: .5rem; flex-wrap: wrap; margin-bottom: 1rem; align-items: center; }
+        .toolbar .grow { flex: 1; min-width: 180px; }
+        .table-wrap { overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { text-align: left; padding: .75rem 1rem; border-bottom: 1px solid var(--border); white-space: nowrap; }
+        th { font-size: .74rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600; background: var(--panel-2); }
+        tr:last-child td { border-bottom: 0; }
+        .person { display: flex; gap: .65rem; align-items: center; }
+        .stat-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; margin-bottom: 1rem; }
+        .stat { padding: 1rem; }
+        .stat b { font-size: 1.5rem; display: block; }
+        .stat span { color: var(--muted); font-size: .8rem; }
+
+        /* ===== Ký số ===== */
+        .sign { display: grid; grid-template-columns: 120px 1fr 320px; height: 100%; min-height: 0; }
+        .thumbs { border-right: 1px solid var(--border); background: var(--panel); padding: .8rem; overflow: auto; display: grid; gap: .8rem; align-content: start; }
+        .thumb { border: 2px solid var(--border); border-radius: 6px; background: var(--paper); aspect-ratio: 1 / 1.414; padding: 8px; position: relative; cursor: pointer; }
+        .thumb.active { border-color: var(--primary); }
+        .thumb i { display: block; height: 3px; background: #e2e8f0; margin-bottom: 4px; border-radius: 2px; }
+        .thumb span { position: absolute; bottom: -1.3rem; left: 0; right: 0; text-align: center; font-size: .7rem; color: var(--muted); }
+        .thumb .sdot { position: absolute; right: 4px; bottom: 4px; width: 9px; height: 9px; border-radius: 50%; background: #16a34a; }
+        .stage { overflow: auto; padding: 1.4rem; display: flex; flex-direction: column; align-items: center; gap: .8rem; background: var(--bg); }
+        .stage-bar { width: 100%; max-width: 560px; display: flex; justify-content: space-between; align-items: center; gap: .5rem; flex-wrap: wrap; }
+        .page { position: relative; width: 100%; max-width: 560px; aspect-ratio: 1 / 1.414; background: var(--paper); color: #0f172a; box-shadow: var(--shadow); border-radius: 4px; padding: 7% 8%; overflow: hidden; flex: none; }
+        .page h4 { text-align: center; font-size: clamp(.8rem, 2vw, 1.05rem); margin-bottom: .3rem; }
+        .page .sub { text-align: center; font-size: clamp(.6rem, 1.4vw, .75rem); color: #475569; margin-bottom: 1rem; }
+        .page p { font-size: clamp(.55rem, 1.35vw, .78rem); color: #334155; margin-bottom: .55rem; text-align: justify; }
+        .page.tampered p.t { background: rgba(220, 38, 38, .12); }
+        .sig-place { position: absolute; width: 30%; padding: .3rem .4rem; border-radius: 5px; user-select: none; touch-action: none; font-size: clamp(.45rem, 1.1vw, .62rem); line-height: 1.3; color: #334155; }
+        .sig-place img { width: 100%; height: clamp(26px, 6vw, 46px); object-fit: contain; display: block; }
+        .sig-place.draft { border: 1.5px dashed #2563eb; background: rgba(37, 99, 235, .07); cursor: grab; }
+        .sig-place.draft:active { cursor: grabbing; }
+        .sig-place.done { border: 1px solid rgba(22, 163, 74, .5); background: rgba(22, 163, 74, .05); }
+        .sig-place .ok { color: #15803d; font-weight: 700; }
+        .side-panel { border-left: 1px solid var(--border); background: var(--panel); overflow: auto; padding: 1rem; display: grid; gap: 1rem; align-content: start; }
+        .side-panel h3 { font-size: .9rem; margin-bottom: .6rem; }
+        .tabs { display: flex; gap: .3rem; margin-bottom: .6rem; }
+        .tabs button { flex: 1; border: 1px solid var(--border); background: var(--panel-2); padding: .4rem; border-radius: 7px; font-size: .8rem; font-weight: 600; color: var(--muted); }
+        .tabs button.active { background: var(--primary); border-color: var(--primary); color: #fff; }
+        #pad, #myPad { width: 100%; aspect-ratio: 3 / 1; background: #fff; border: 1.5px dashed #94a3b8; border-radius: 9px; touch-action: none; cursor: crosshair; display: block; }
+        .pad-row { display: flex; gap: .4rem; margin-top: .45rem; flex-wrap: wrap; }
+        .layers { display: flex; flex-direction: column-reverse; gap: 4px; }
+        .layer { display: flex; justify-content: space-between; gap: .5rem; font-size: .72rem; padding: .45rem .6rem; border-radius: 7px; border: 1px solid var(--border); border-left: 4px solid #94a3b8; background: var(--panel-2); }
+        .layer.new { animation: pop .5s ease; }
+        @keyframes pop { from { transform: translateY(-6px); opacity: 0; } }
+        .flow { display: flex; align-items: center; gap: .3rem; flex-wrap: wrap; font-size: .76rem; }
+        .flow span { padding: .2rem .5rem; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); }
+        .flow span.done { background: var(--green-soft); color: var(--green); border-color: transparent; }
+        .flow span.cur { background: var(--primary); color: #fff; border-color: transparent; }
+
+        /* ===== Kiểm tra ===== */
+        .verify-banner { display: flex; align-items: center; gap: .9rem; padding: 1rem 1.2rem; border-radius: 14px; margin-bottom: 1rem; border: 1px solid var(--border); background: var(--green-soft); }
+        .verify-banner.bad { background: var(--red-soft); }
+        .verify-banner.none { background: var(--panel); }
+        .tick { width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; background: var(--green); color: #fff; font-weight: 800; flex: none; font-size: 1.1rem; }
+        .tick.sm { width: 24px; height: 24px; font-size: .75rem; }
+        .tick.bad { background: var(--red); }
+        .tick.none { background: var(--muted); }
+        .verify-grid { display: grid; grid-template-columns: 1.4fr 1fr; gap: 1rem; align-items: start; }
+        .sig-item { border-bottom: 1px solid var(--border); }
+        .sig-item:last-child { border-bottom: 0; }
+        .sig-head { display: flex; gap: .8rem; align-items: center; padding: .85rem 1rem; cursor: pointer; }
+        .sig-head .grow { flex: 1; min-width: 0; }
+        .sig-head small { color: var(--muted); display: block; font-size: .76rem; }
+        .sig-body { padding: 0 1rem 1rem 3.4rem; display: none; }
+        .sig-item.open .sig-body { display: block; }
+        .kv { display: grid; grid-template-columns: 150px 1fr; gap: .35rem .8rem; font-size: .82rem; }
+        .kv dt { color: var(--muted); }
+        .kv dd { word-break: break-all; }
+        .empty { text-align: center; padding: 2.5rem 1rem; color: var(--muted); }
+        .empty div { font-size: 2rem; margin-bottom: .4rem; }
+
+        /* ===== Tài khoản ===== */
+        .acc-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+        .pem { width: 100%; height: 170px; font-family: 'JetBrains Mono', monospace; font-size: .7rem; resize: vertical; padding: .6rem; border-radius: 9px; border: 1px solid var(--border); background: var(--panel-2); }
+        .profile { display: flex; gap: 1rem; align-items: center; }
+        .profile .avatar { width: 58px; height: 58px; font-size: 1.3rem; }
+
+        /* ===== Modal & toast ===== */
+        .modal-bg { position: fixed; inset: 0; background: rgba(2, 6, 23, .55); display: grid; place-items: center; padding: 1rem; z-index: 50; }
+        .modal { background: var(--panel); border-radius: 16px; width: 100%; max-width: 420px; box-shadow: var(--shadow); max-height: 90vh; overflow: auto; }
+        .modal .card-b { display: grid; gap: .2rem; }
+        .qr { width: 220px; height: 220px; margin: .5rem auto; display: block; image-rendering: pixelated; border-radius: 8px; }
+        .scan { position: relative; width: 240px; height: 240px; margin: .5rem auto; border-radius: 14px; background: #0f172a; overflow: hidden; }
+        .scan::before { content: ""; position: absolute; inset: 30px; border: 3px solid rgba(255, 255, 255, .8); border-radius: 12px; }
+        .scan::after { content: ""; position: absolute; left: 30px; right: 30px; height: 2px; background: #22c55e; box-shadow: 0 0 12px #22c55e; animation: scan 1.6s ease-in-out infinite; }
+        @keyframes scan { 0%, 100% { top: 34px; } 50% { top: 204px; } }
+        .toast { position: fixed; bottom: 1.2rem; left: 50%; transform: translate(-50%, 30px); opacity: 0; background: #0f172a; color: #fff; padding: .6rem 1.1rem; border-radius: 999px; font-weight: 600; font-size: .85rem; transition: .3s; z-index: 60; pointer-events: none; max-width: calc(100% - 2rem); text-align: center; }
+        .toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+        /* ===== Trang cá nhân ===== */
+        .hub { display: grid; grid-template-columns: repeat(12, 1fr); gap: 1rem; }
+        .span-12 { grid-column: span 12; }
+        .span-8 { grid-column: span 8; }
+        .span-4 { grid-column: span 4; }
+        .hero-card { display: flex; gap: 1.2rem; align-items: center; padding: 1.3rem 1.4rem; flex-wrap: wrap; background: linear-gradient(120deg, var(--primary-soft), transparent 60%), var(--panel); }
+        .hero-card .avatar { width: 64px; height: 64px; font-size: 1.5rem; }
+        .hero-card h2 { font-size: 1.35rem; line-height: 1.3; }
+        .hero-card .grow { flex: 1; min-width: 220px; }
+        .chips { display: flex; gap: .4rem; flex-wrap: wrap; }
+        .chip.amber { background: rgba(217, 119, 6, .13); color: var(--amber); }
+        .card-h .acts { display: flex; gap: .4rem; flex-wrap: wrap; }
+        .kv.tight { grid-template-columns: 105px 1fr; font-size: .8rem; }
+        .key-status { display: flex; gap: .6rem; align-items: center; padding: .6rem .7rem; border-radius: 10px; background: var(--panel-2); border: 1px solid var(--border); margin-bottom: .5rem; }
+        .key-status b { display: block; font-size: .84rem; }
+        .key-status small { color: var(--muted); font-size: .74rem; word-break: break-all; }
+        .mini-conv { display: flex; gap: .65rem; align-items: center; padding: .55rem 0; border-bottom: 1px solid var(--border); cursor: pointer; }
+        .mini-conv:last-child { border-bottom: 0; }
+        .mini-conv .meta { min-width: 0; flex: 1; }
+        .mini-conv p { font-size: .78rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .mini-conv .avatar { width: 32px; height: 32px; font-size: .75rem; }
+        .av-stack { display: flex; }
+        .av-stack .avatar { width: 30px; height: 30px; font-size: .72rem; border: 2px solid var(--panel); margin-left: -8px; }
+        .av-stack .avatar:first-child { margin-left: 0; }
+        .doc-tabs { display: flex; gap: .3rem; flex-wrap: wrap; }
+        .doc-tabs button { border: 1px solid var(--border); background: var(--panel-2); color: var(--muted); padding: .3rem .7rem; border-radius: 999px; font-size: .8rem; font-weight: 600; }
+        .doc-tabs button.active { background: var(--primary); border-color: var(--primary); color: #fff; }
+        .doc-row { display: flex; gap: .8rem; align-items: center; padding: .85rem 1rem; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+        .doc-row:last-child { border-bottom: 0; }
+        .doc-row .grow { flex: 1; min-width: 200px; }
+        .doc-row small { color: var(--muted); font-size: .76rem; display: block; margin-bottom: .3rem; }
+        .flow.mini { font-size: .68rem; }
+        .flow.mini span { padding: .05rem .45rem; }
+        .cert-ok { display: flex; gap: .8rem; align-items: center; padding: .8rem; border-radius: 12px; background: var(--green-soft); margin-bottom: .8rem; }
+        .cert-ok small { color: var(--muted); display: block; font-size: .75rem; }
+        .hist { display: grid; }
+        .hist li { list-style: none; display: flex; gap: .65rem; padding: .55rem 0; border-bottom: 1px dashed var(--border); font-size: .8rem; }
+        .hist li:last-child { border-bottom: 0; }
+        .hist .h-ico { width: 28px; height: 28px; border-radius: 8px; background: var(--panel-2); border: 1px solid var(--border); display: grid; place-items: center; flex: none; }
+        .hist small { color: var(--muted); display: block; font-size: .72rem; }
+        .page.pdf { padding: 0; }
+        .pdf-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+        @media (max-width: 1100px) {
+            .span-8, .span-4 { grid-column: span 6; }
+            .span-8.wide { grid-column: span 12; }
+        }
+        @media (max-width: 860px) {
+            .span-8, .span-4 { grid-column: span 12; }
+        }
+
+        /* ===== Responsive ===== */
+        @media (max-width: 1100px) {
+            .sign { grid-template-columns: 1fr 300px; }
+            .thumbs { display: none; }
+            .verify-grid { grid-template-columns: 1fr; }
+        }
+        @media (max-width: 860px) {
+            .login { grid-template-columns: 1fr; }
+            .login-art { display: none; }
+            .shell { grid-template-columns: 1fr; grid-template-rows: 1fr auto; }
+            .side { order: 2; flex-direction: row; padding: .35rem; gap: 0; }
+            .side .logo, .me { display: none; }
+            .nav { grid-auto-flow: column; grid-auto-columns: 1fr; width: 100%; }
+            .nav button { flex-direction: column; gap: .1rem; font-size: .66rem; padding: .4rem .2rem; align-items: center; }
+            .nav .badge { position: absolute; margin: 0 0 0 1.2rem; }
+            .nav button { position: relative; }
+            .topbar { padding: .7rem 1rem; }
+            .net { display: none; }
+            .chat { grid-template-columns: 1fr; }
+            .chat.in-thread .conv-list, .chat:not(.in-thread) .thread { display: none; }
+            .back-btn { display: inline-flex !important; }
+            .msg { max-width: 85%; }
+            .sign { grid-template-columns: 1fr; height: auto; }
+            .side-panel { border-left: 0; border-top: 1px solid var(--border); }
+            .stat-row { grid-template-columns: repeat(2, 1fr); }
+            .social { grid-template-columns: 1fr; }
+            .acc-grid { grid-template-columns: 1fr; }
+            .pad { padding: 1rem; }
+            .kv { grid-template-columns: 1fr; gap: 0; }
+            .kv dd { margin-bottom: .4rem; }
+            .sig-body { padding-left: 1rem; }
+        }
+        .back-btn { display: none !important; }
+    </style>
+</head>
+
+<body>
+
+    <!-- ===================== ĐĂNG NHẬP ===================== -->
+    <section class="login" id="loginScreen">
+        <div class="login-art">
+            <div class="logo"><span class="logo-mark">🔒</span>LAN Chat</div>
+            <div>
+                <h1>Nhắn tin mã hóa và<br>ký số PDF trong mạng nội bộ</h1>
+                <p style="color:#94a3b8">Mỗi tài khoản có cặp khóa RSA và chứng thư số X.509 riêng.</p>
+                <ul>
+                    <li><span>💬</span><div><b>Tin nhắn E2E</b><br><small style="color:#94a3b8">RSA‑OAEP + AES‑256‑GCM</small></div></li>
+                    <li><span>✍️</span><div><b>Ký số PDF</b><br><small style="color:#94a3b8">PAdES, ký nối tiếp bằng Incremental Update</small></div></li>
+                    <li><span>✅</span><div><b>Tương thích Adobe / Foxit</b><br><small style="color:#94a3b8">Hiển thị danh sách người ký và tick xanh</small></div></li>
+                </ul>
+            </div>
+            <small style="color:#64748b">© 2026 LAN Chat · Bản thiết kế giao diện</small>
+        </div>
+        <div class="login-form-wrap">
+            <div class="login-card">
+                <h2 id="loginTitle">Đăng nhập</h2>
+                <p class="muted" id="loginSub">Mật khẩu được băm SHA‑256 ngay khi bạn nhập.</p>
+                <div class="seg">
+                    <button class="active" data-mode="login">Đăng nhập</button>
+                    <button data-mode="register">Đăng ký</button>
+                </div>
+                <form id="loginForm" autocomplete="off">
+                    <div class="field">
+                        <label for="fName">Tên tài khoản (họ và tên)</label>
+                        <input class="input" id="fName" value="Nguyễn Văn An" required>
+                    </div>
+                    <div class="field">
+                        <label for="fPass">Mật khẩu</label>
+                        <input class="input" id="fPass" type="password" value="matkhau123" required>
+                        <small class="hidden" id="passHint">Ít nhất 8 ký tự. Không thể lấy lại nếu quên, vì khóa riêng được mã hóa bằng mật khẩu này.</small>
+                    </div>
+                    <div class="field hidden" id="pass2Field">
+                        <label for="fPass2">Nhập lại mật khẩu</label>
+                        <input class="input" id="fPass2" type="password">
+                    </div>
+                    <div class="field">
+                        <label>SHA‑256 của mật khẩu (giá trị được gửi đi)</label>
+                        <div class="hash-box mono" id="hashBox"></div>
+                    </div>
+                    <div class="form-err hidden" id="formErr" role="alert"></div>
+                    <button class="btn primary block" id="loginBtn" type="submit">Đăng nhập</button>
+                </form>
+                <p class="muted" style="font-size:.84rem;margin-top:.8rem"><span id="switchText">Chưa có tài khoản?</span> <button type="button" class="link-btn" id="switchBtn">Đăng ký ngay</button></p>
+                <p class="muted" id="serverNote" style="font-size:.78rem;margin-top:.8rem">Đang dùng chế độ minh họa trên trình duyệt này. Chạy server.py để nhiều người dùng chung.</p>
+                <div class="steps hidden" id="steps">
+                    <div><i>1</i>Băm mật khẩu SHA‑256</div>
+                    <div><i>2</i>Đối chiếu mã băm</div>
+                    <div><i>3</i>Tải cặp khóa RSA của tài khoản</div>
+                    <div><i>4</i>Kiểm tra chứng thư số X.509</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ===================== ỨNG DỤNG ===================== -->
+    <section class="shell hidden" id="appScreen">
+        <aside class="side">
+            <div class="logo"><span class="logo-mark">🔒</span>LAN Chat</div>
+            <nav class="nav" id="nav">
+                <button data-view="profile" class="active"><span class="ico">🏠</span>Cá nhân</button>
+                <button data-view="chat"><span class="ico">💬</span>Tin nhắn<span class="badge" id="unread">2</span></button>
+                <button data-view="contacts"><span class="ico">👥</span>Danh bạ<span class="badge hidden" id="reqBadge">0</span></button>
+                <button data-view="sign"><span class="ico">✍️</span>Ký số PDF</button>
+                <button data-view="verify"><span class="ico">🛡️</span>Kiểm tra chữ ký</button>
+                <button data-view="account"><span class="ico">🔑</span>Tài khoản</button>
+            </nav>
+            <div class="me">
+                <div class="avatar" id="meAvatar" style="background:#2563eb">A</div>
+                <div><b id="meName">Nguyễn Văn An</b><small><span class="dot on"></span> <span id="meAddr">192.168.1.10</span></small></div>
+            </div>
+        </aside>
+
+        <main class="main">
+            <div class="topbar">
+                <h1 id="viewTitle">Tin nhắn</h1>
+                <div class="right">
+                    <span class="net"><span class="dot on"></span><span id="netLabel">LAN 192.168.1.0/24 · cổng 54321</span></span>
+                    <button class="icon-btn" id="themeBtn" title="Đổi giao diện sáng/tối">◐</button>
+                </div>
+            </div>
+
+            <!-- Trang cá nhân -->
+            <div class="view pad" id="view-profile">
+                <div class="hub">
+                    <div class="card hero-card span-12">
+                        <div class="avatar" id="pAvatar"></div>
+                        <div class="grow">
+                            <div class="muted" id="pWelcome"></div>
+                            <h2 id="pName"></h2>
+                            <div class="muted" style="font-size:.84rem"><span id="pAddr">Nhân viên · 192.168.1.10:54321</span> · <span class="mono" id="pFp"></span></div>
+                        </div>
+                        <div class="chips">
+                            <span class="chip green">✓ Mật khẩu SHA‑256</span>
+                            <span class="chip green">✓ Cặp khóa RSA</span>
+                            <span class="chip green">✓ Chứng thư X.509</span>
+                            <span class="chip" id="pSigChip"></span>
+                        </div>
+                    </div>
+
+                    <!-- 1. Quản lý định danh -->
+                    <div class="card span-4">
+                        <div class="card-h"><h3>🪪 Hồ sơ định danh số</h3><button class="btn sm" data-go="account">Chi tiết</button></div>
+                        <div class="card-b">
+                            <div class="key-status"><span class="tick sm">✓</span><div><b>Khóa công khai (Public Key)</b><small id="pPub"></small></div></div>
+                            <div class="key-status"><span class="tick sm">🔒</span><div><b>Khóa bí mật (Private Key)</b><small id="pPrivNote">Đã khởi tạo tự động · chỉ lưu trên máy này</small></div></div>
+                            <dl class="kv tight" style="margin-top:.8rem">
+                                <dt>Chủ thể</dt><dd id="pSubject"></dd>
+                                <dt>Cấp bởi</dt><dd>LAN Chat Root CA</dd>
+                                <dt>Hiệu lực đến</dt><dd id="pUntil"></dd>
+                            </dl>
+                        </div>
+                    </div>
+
+                    <div class="card span-4">
+                        <div class="card-h"><h3>✍️ Chữ ký đồ họa của tôi</h3></div>
+                        <div class="card-b">
+                            <div class="tabs" id="myTabs">
+                                <button class="active" data-my="draw">Vẽ tay</button>
+                                <button data-my="upload">Tải ảnh / con dấu</button>
+                            </div>
+                            <canvas id="myPad" width="600" height="200" aria-label="Khung chữ ký của tôi"></canvas>
+                            <div class="pad-row">
+                                <button class="btn sm" id="myClear">Xóa</button>
+                                <label class="btn sm hidden" id="myUploadLbl">Chọn ảnh…<input type="file" accept="image/*" id="myUpload" hidden></label>
+                                <button class="btn sm primary" id="mySave" style="margin-left:auto">Lưu chữ ký</button>
+                            </div>
+                            <p class="muted" style="font-size:.76rem;margin-top:.5rem">Chữ ký đã lưu được dùng tự động khi bạn ký tài liệu.</p>
+                        </div>
+                    </div>
+
+                    <!-- 2. Bảo mật & liên lạc -->
+                    <div class="card span-4">
+                        <div class="card-h"><h3>🔐 Trò chuyện LAN bảo mật</h3><button class="btn sm" data-go="chat">Mở</button></div>
+                        <div class="card-b" style="padding-top:.3rem">
+                            <div id="pChats"></div>
+                            <div style="display:flex;align-items:center;justify-content:space-between;gap:.5rem;margin-top:.8rem;flex-wrap:wrap">
+                                <div style="display:flex;align-items:center;gap:.5rem"><div class="av-stack" id="pAvs"></div><small class="muted" id="pOnline"></small></div>
+                                <div style="display:flex;gap:.3rem">
+                                    <button class="btn sm" data-go="contacts">👥</button>
+                                    <button class="btn sm primary" id="pScan">📷 Quét QR</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 3. Trung tâm tài liệu -->
+                    <div class="card span-8 wide">
+                        <div class="card-h">
+                            <h3>📁 Trung tâm ký số tài liệu</h3>
+                            <div class="acts">
+                                <div class="doc-tabs" id="docTabs"></div>
+                                <label class="btn sm primary">⬆ Tải PDF lên<input type="file" accept="application/pdf,.pdf" id="pdfUpload" hidden></label>
+                            </div>
+                        </div>
+                        <div id="docRows"></div>
+                    </div>
+
+                    <!-- 4. Xác thực -->
+                    <div class="card span-4">
+                        <div class="card-h"><h3>🧾 Lịch sử ký & xác thực</h3><button class="btn sm" data-go="verify">Kiểm tra</button></div>
+                        <div class="card-b">
+                            <div class="cert-ok"><span class="tick">✓</span><div><b>Chứng chỉ số nội bộ hợp lệ</b><small>Hiện tick xanh trên Adobe Acrobat / Foxit Reader sau khi tin cậy LAN Chat Root CA</small></div></div>
+                            <ul class="hist" id="histList"></ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tin nhắn -->
+            <div class="view hidden" id="view-chat">
+                <div class="chat" id="chatLayout">
+                    <div class="conv-list">
+                        <div class="conv-search"><input class="input" id="convSearch" placeholder="Tìm cuộc trò chuyện…"></div>
+                        <div id="convList"></div>
+                    </div>
+                    <div class="thread">
+                        <div class="thread-h">
+                            <div class="who">
+                                <button class="btn sm back-btn" id="backBtn">←</button>
+                                <div class="av-wrap"><div class="avatar" id="tAvatar"></div><span class="dot" id="tDot"></span></div>
+                                <div><b id="tName"></b><br><small id="tInfo"></small></div>
+                            </div>
+                            <div style="display:flex;gap:.4rem;flex-wrap:wrap">
+                                <button class="btn sm hidden" id="groupInfoBtn">👥 Thành viên</button>
+                                <button class="btn sm" id="cipherBtn">🔍 Xem gói tin mã hóa</button>
+                                <button class="btn sm danger" id="clearChatBtn">🗑 Xóa lịch sử</button>
+                                <button class="btn sm" id="sendPdfBtn">📎 Gửi PDF cần ký</button>
+                            </div>
+                        </div>
+                        <div class="msgs" id="msgs"></div>
+                        <form class="composer" id="composer">
+                            <input class="input" id="msgInput" placeholder="Nhập tin nhắn, sẽ được mã hóa trước khi gửi…" autocomplete="off">
+                            <button class="btn primary" type="submit">🔒 Gửi</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Danh bạ -->
+            <div class="view pad hidden" id="view-contacts">
+                <div class="stat-row">
+                    <div class="card stat"><b id="sTotal">0</b><span id="sTotalLabel">Liên hệ</span></div>
+                    <div class="card stat"><b id="sOnline" style="color:var(--green)">0</b><span>Đang online</span></div>
+                    <div class="card stat"><b id="sThird">E2E</b><span id="sThirdLabel">Mã hóa tin nhắn</span></div>
+                    <div class="card stat"><b id="sFourth">QR</b><span id="sFourthLabel">Thêm liên hệ</span></div>
+                </div>
+                <div class="social hidden" id="socialPanel">
+                    <div class="card"><div class="card-h"><h3>Lời mời kết bạn</h3></div><div id="reqList"></div></div>
+                    <div class="card"><div class="card-h"><h3>Gợi ý kết bạn</h3></div><div id="suggestList"></div></div>
+                </div>
+                <div class="toolbar">
+                    <input class="input grow" id="contactSearch" placeholder="Tìm theo tên hoặc IP…">
+                    <button class="btn" id="myQrBtn">▦ QR của tôi</button>
+                    <button class="btn" id="scanBtn">📷 Quét QR</button>
+                    <button class="btn hidden" id="syncBtn">🔄 Đồng bộ</button>
+                    <button class="btn" id="groupBtn">👥 Tạo nhóm</button>
+                    <button class="btn primary" id="addBtn">＋ Thêm liên hệ</button>
+                </div>
+                <div class="card table-wrap">
+                    <table>
+                        <thead><tr><th>Tên</th><th>Địa chỉ IP</th><th>Trạng thái</th><th>Vân tay khóa (SHA‑256)</th><th></th></tr></thead>
+                        <tbody id="contactRows"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Ký số -->
+            <div class="view hidden" id="view-sign">
+                <div class="sign">
+                    <div class="thumbs" id="thumbs"></div>
+                    <div class="stage">
+                        <div class="stage-bar">
+                            <b id="docName">📄</b>
+                            <span class="muted" id="pageLabel">Trang 1 / 3</span>
+                            <div style="display:flex;gap:.3rem">
+                                <button class="btn sm" id="prevPage">‹</button>
+                                <button class="btn sm" id="nextPage">›</button>
+                            </div>
+                        </div>
+                        <div class="page" id="page"></div>
+                        <small class="muted">Kéo khung chữ ký màu xanh đến vị trí cần ký. Có thể dùng phím mũi tên.</small>
+                    </div>
+                    <div class="side-panel">
+                        <div>
+                            <h3>Quy trình phê duyệt</h3>
+                            <div class="flow" id="flow"></div>
+                        </div>
+                        <div>
+                            <h3>Người ký hiện tại</h3>
+                            <div class="person"><div class="avatar" id="signerAv"></div><div><b id="signerName"></b><br><small class="muted" id="signerRole"></small></div></div>
+                        </div>
+                        <div>
+                            <h3>Chữ ký đồ họa</h3>
+                            <div class="tabs">
+                                <button class="active" data-sig="draw">Vẽ tay</button>
+                                <button data-sig="stamp">Con dấu</button>
+                                <button data-sig="upload">Tải ảnh</button>
+                            </div>
+                            <canvas id="pad" width="600" height="200"></canvas>
+                            <div class="pad-row">
+                                <button class="btn sm" id="clearPad">Xóa</button>
+                                <label class="btn sm hidden" id="uploadLbl">Chọn ảnh…<input type="file" accept="image/*" id="uploadInput" hidden></label>
+                            </div>
+                        </div>
+                        <div class="field" style="margin:0">
+                            <label for="reason">Lý do ký</label>
+                            <select class="input" id="reason">
+                                <option>Tôi là tác giả tài liệu</option>
+                                <option>Tôi đã kiểm tra tài liệu</option>
+                                <option>Tôi phê duyệt tài liệu</option>
+                            </select>
+                        </div>
+                        <button class="btn green block" id="signBtn">✍️ Ký số bằng khóa cá nhân</button>
+                        <button class="btn block" id="passBtn" disabled>📨 Chuyển người ký tiếp theo</button>
+                        <div>
+                            <h3>Cấu trúc file (Incremental Update)</h3>
+                            <div class="layers" id="layers"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Kiểm tra chữ ký -->
+            <div class="view pad hidden" id="view-verify">
+                <div class="verify-banner" id="vBanner"></div>
+                <div class="verify-grid">
+                    <div class="card">
+                        <div class="card-h">
+                            <select class="input" id="verifyDoc" style="width:auto;max-width:100%;padding:.4rem .6rem" aria-label="Chọn tài liệu"></select>
+                            <div style="display:flex;gap:.4rem;flex-wrap:wrap">
+                                <button class="btn sm danger" id="tamperBtn">⚠ Thử sửa tài liệu</button>
+                                <button class="btn sm" id="exportBtn">⬇ Xuất thông tin (JSON)</button>
+                            </div>
+                        </div>
+                        <div id="sigList"></div>
+                    </div>
+                    <div class="card">
+                        <div class="card-h"><h3>Khi mở bằng Adobe / Foxit Reader</h3></div>
+                        <div class="card-b" id="readerPreview"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tài khoản -->
+            <div class="view pad hidden" id="view-account">
+                <div class="acc-grid">
+                    <div class="card">
+                        <div class="card-h"><h3>Hồ sơ</h3><button class="btn sm danger" id="logoutBtn">Đăng xuất</button></div>
+                        <div class="card-b">
+                            <div class="profile">
+                                <div class="avatar" id="accAvatar" style="background:#2563eb"></div>
+                                <div><b id="accName" style="font-size:1.05rem"></b><br><span class="muted" id="accAddr">Nhân viên · 192.168.1.10</span></div>
+                            </div>
+                            <dl class="kv" style="margin-top:1rem">
+                                <dt>Mã băm mật khẩu</dt><dd class="mono" id="accHash"></dd>
+                                <dt>Thuật toán băm</dt><dd>SHA‑256</dd>
+                                <dt>Đăng nhập lúc</dt><dd id="accTime"></dd>
+                            </dl>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="card-h"><h3>Chứng thư số X.509</h3><span class="chip green">✓ Còn hiệu lực</span></div>
+                        <div class="card-b">
+                            <dl class="kv" id="certInfo"></dl>
+                        </div>
+                    </div>
+                    <div class="card" style="grid-column:1/-1">
+                        <div class="card-h"><h3>Cặp khóa của tài khoản</h3>
+                            <div style="display:flex;gap:.4rem">
+                                <button class="btn sm" id="copyPem">Sao chép khóa công khai</button>
+                                <button class="btn sm" id="dlPem">⬇ Tải .pem</button>
+                            </div>
+                        </div>
+                        <div class="card-b">
+                            <dl class="kv" style="margin-bottom:.8rem">
+                                <dt>Thuật toán</dt><dd id="keyAlg">RSA</dd>
+                                <dt>Vân tay (SHA‑256)</dt><dd class="mono" id="keyFp">…</dd>
+                                <dt>Khóa riêng</dt><dd id="aPrivNote">🔒 Lưu trên máy này, không bao giờ gửi đi</dd>
+                            </dl>
+                            <textarea class="pem" id="pemBox" readonly>Đang tạo khóa…</textarea>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </section>
+
+    <script src="qrcode.js"></script>
+    <script src="jsQR.js"></script>
+    <div id="modalRoot"></div>
+    <div class="toast" id="toast" role="status"></div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+    <script>
+        // ============ Tiện ích ============
+        const $ = s => document.querySelector(s);
+        const $$ = s => [...document.querySelectorAll(s)];
+        const enc = new TextEncoder();
+        const sleep = ms => new Promise(r => setTimeout(r, ms));
+        const b64 = buf => btoa(String.fromCharCode(...new Uint8Array(buf)));
+        const hex = buf => [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
+        const sha256 = async s => hex(await crypto.subtle.digest('SHA-256', typeof s === 'string' ? enc.encode(s) : s));
+        const nowTime = () => new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
+        const esc = s => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        const initials = n => n.trim().split(/\s+/).pop()[0].toUpperCase();
+        const COLORS = ['#2563eb', '#7c3aed', '#db2777', '#ea580c', '#0d9488', '#4f46e5', '#16a34a'];
+        const colorOf = n => COLORS[[...n].reduce((a, c) => a + c.charCodeAt(0), 0) % COLORS.length];
+        const avatarHtml = n => `<div class="avatar" style="background:${colorOf(n)}">${esc(initials(n))}</div>`;
+
+        function toast(msg) {
+            const t = $('#toast');
+            t.textContent = msg;
+            t.classList.add('show');
+            clearTimeout(t._h);
+            t._h = setTimeout(() => t.classList.remove('show'), 2400);
+        }
+
+        // ============ Giao diện sáng/tối ============
+        try { const t = localStorage.getItem('lanchat-theme'); if (t) document.documentElement.dataset.theme = t; } catch (e) { }
+        $('#themeBtn').onclick = () => {
+            const cur = document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+            const next = cur === 'dark' ? 'light' : 'dark';
+            document.documentElement.dataset.theme = next;
+            try { localStorage.setItem('lanchat-theme', next); } catch (e) { }
+        };
+
+        // ============ Trạng thái ============
+        const state = {
+            user: null, passHash: '', aesKey: null,
+            contacts: [
+                { id: 1, name: 'Trần Thị Bình', role: 'Trưởng phòng', ip: '192.168.1.24', status: 'on', fp: '' },
+                { id: 2, name: 'Lê Minh Cường', role: 'Giám đốc', ip: '192.168.1.31', status: 'on', fp: '' },
+                { id: 3, name: 'Phạm Thu Hà', role: 'Kế toán', ip: '192.168.1.45', status: 'busy', fp: '' },
+                { id: 4, name: 'Đỗ Quốc Huy', role: 'Kỹ thuật', ip: '192.168.1.52', status: 'off', fp: '' },
+            ],
+            chats: {}, unread: { 1: 1, 2: 1 }, active: 1, showCipher: false,
+            page: 1, draft: { x: 58, y: 76 }, docs: [], doc: null, history: [], mySig: null, isNew: false, docFilter: 'todo',
+        };
+        const doc = () => state.doc;
+        const PAGES = () => doc().pdf ? doc().pdf.numPages : 3;
+
+        // ============ Đăng nhập ============
+        let mode = 'login';
+        const STEP_TEXT = {
+            login: ['Băm mật khẩu SHA‑256', 'Đối chiếu mã băm', 'Tải cặp khóa RSA của tài khoản', 'Kiểm tra chứng thư số X.509'],
+            register: ['Băm mật khẩu SHA‑256', 'Sinh cặp khóa RSA', 'Mã hóa khóa riêng bằng mật khẩu', 'Tạo tài khoản và chứng thư số'],
+        };
+        function formErr(msg) {
+            $('#formErr').textContent = msg;
+            $('#formErr').classList.toggle('hidden', !msg);
+        }
+        function setMode(next) {
+            mode = next;
+            const reg = mode === 'register';
+            $$('.seg button').forEach(x => x.classList.toggle('active', x.dataset.mode === mode));
+            $('#loginTitle').textContent = reg ? 'Tạo tài khoản mới' : 'Đăng nhập';
+            $('#loginSub').textContent = reg ? 'Tài khoản đi kèm cặp khóa và chứng thư số riêng, được tạo tự động.' : 'Mật khẩu được băm SHA‑256 ngay khi bạn nhập.';
+            $('#loginBtn').textContent = reg ? 'Đăng ký tài khoản' : 'Đăng nhập';
+            $('#pass2Field').classList.toggle('hidden', !reg);
+            $('#passHint').classList.toggle('hidden', !reg);
+            $('#switchText').textContent = reg ? 'Đã có tài khoản?' : 'Chưa có tài khoản?';
+            $('#switchBtn').textContent = reg ? 'Đăng nhập' : 'Đăng ký ngay';
+            formErr('');
+        }
+        $$('.seg button').forEach(b => b.onclick = () => setMode(b.dataset.mode));
+        $('#switchBtn').onclick = () => setMode(mode === 'login' ? 'register' : 'login');
+        const updateHash = async () => {
+            const v = $('#fPass').value;
+            $('#hashBox').textContent = v ? await sha256(v) : '(chưa nhập mật khẩu)';
+        };
+        $('#fPass').addEventListener('input', updateHash);
+        updateHash();
+
+        $('#loginForm').onsubmit = async e => {
+            e.preventDefault();
+            const name = $('#fName').value.trim().replace(/\s+/g, ' ').normalize('NFC');
+            if (!name) return;
+            if (mode === 'register') {
+                if (name.length < 2 || name.length > 60) return formErr('Tên tài khoản cần từ 2 đến 60 ký tự');
+                if ($('#fPass').value.length < 8) return formErr('Mật khẩu cần ít nhất 8 ký tự');
+                if ($('#fPass').value !== $('#fPass2').value) return formErr('Hai lần nhập mật khẩu chưa giống nhau');
+            }
+            formErr('');
+            $('#loginBtn').disabled = true;
+            const steps = $$('#steps div');
+            steps.forEach((s, i) => {
+                s.classList.remove('done');
+                s.innerHTML = `<i>${i + 1}</i>${STEP_TEXT[mode][i]}`;
+            });
+            $('#steps').classList.remove('hidden');
+            const keyPromise = generateKeys();
+            for (const s of steps) {
+                await sleep(450);
+                s.classList.add('done');
+                s.querySelector('i').textContent = '✓';
+            }
+            state.passHash = await sha256($('#fPass').value);
+            state.user = name;
+            state.isNew = mode === 'register';
+            const acct = state.server ? name.toLowerCase() : name;
+            state.histId = await sha256(acct + ':' + state.passHash);
+            state.histKey = await deriveHistKey($('#fPass').value, acct);
+            await keyPromise;
+            if (state.server) {
+                try { await serverAuth(name); }
+                catch (err) {
+                    formErr(err.name === 'OperationError' ? 'Không mở được khóa riêng. Hãy kiểm tra lại mật khẩu' : err.message);
+                    $('#loginBtn').disabled = false;
+                    $('#steps').classList.add('hidden');
+                    return;
+                }
+            }
+            await enterApp();
+            if (state.server) {
+                enterServerUi();
+                renderContacts();
+                syncLoop();
+                // Mở từ mã QR bằng camera điện thoại
+                const code = parseFriendCode(location.hash);
+                if (code) {
+                    history.replaceState(null, '', location.pathname);
+                    onFriendCode(code);
+                }
+            }
+        };
+
+        // ============ Khóa & chứng thư ============
+        let keyPair = null, pemText = '';
+        async function generateKeys() {
+            state.aesKey = await crypto.subtle.generateKey({ name: 'AES-GCM', length: 256 }, true, ['encrypt', 'decrypt']);
+            // Bản thiết kế dùng RSA-2048 để tạo nhanh trên trình duyệt; ứng dụng thật dùng RSA-4096.
+            keyPair = await crypto.subtle.generateKey(
+                { name: 'RSA-OAEP', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' },
+                true, ['encrypt', 'decrypt']);
+            const spki = await crypto.subtle.exportKey('spki', keyPair.publicKey);
+            pemText = '-----BEGIN PUBLIC KEY-----\n' + b64(spki).match(/.{1,64}/g).join('\n') + '\n-----END PUBLIC KEY-----';
+            state.fingerprint = await sha256(spki);
+            for (const c of state.contacts) c.fp = await sha256(c.name + c.ip);
+        }
+
+        function fmtFp(fp) { return fp.slice(0, 32).match(/.{2}/g).join(':').toUpperCase(); }
+
+        async function enterApp() {
+            $('#loginScreen').classList.add('hidden');
+            $('#appScreen').classList.remove('hidden');
+            $('#meName').textContent = state.user;
+            for (const id of ['#meAvatar', '#accAvatar']) {
+                $(id).textContent = initials(state.user);
+                $(id).style.background = colorOf(state.user);
+            }
+            const restored = await loadChats();
+            if (!restored) await seedChats();
+            renderConvs();
+            openChat(state.active, true);
+            if (restored) setTimeout(() => toast(`🔓 Đã khôi phục ${restored} tin nhắn từ lần trò chuyện trước`), 400);
+            renderContacts();
+            renderAccount();
+            setupPad();
+            setupMyPad();
+            await seedDocs();
+            initSign();
+            go('profile');
+        }
+
+        $('#logoutBtn').onclick = async () => {
+            if (state.token) await api('logout', {}).catch(() => { });
+            location.reload();
+        };
+
+        // ============ Điều hướng ============
+        const TITLES = { profile: 'Trang cá nhân', chat: 'Tin nhắn', contacts: 'Danh bạ', sign: 'Ký số PDF', verify: 'Kiểm tra chữ ký', account: 'Tài khoản & khóa' };
+        function go(view) {
+            $$('#nav button').forEach(b => b.classList.toggle('active', b.dataset.view === view));
+            $$('.view').forEach(v => v.classList.add('hidden'));
+            $('#view-' + view).classList.remove('hidden');
+            $('#viewTitle').textContent = TITLES[view];
+            if (view === 'verify') renderVerify();
+            if (view === 'sign') { renderPage(); renderSignPanel(); }
+            if (view === 'profile') renderProfile();
+            $('.view:not(.hidden)').scrollTop = 0;
+        }
+        $$('#nav button').forEach(b => b.onclick = () => go(b.dataset.view));
+
+        // ============ Tin nhắn ============
+        async function encryptText(text) {
+            const iv = crypto.getRandomValues(new Uint8Array(12));
+            const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, state.aesKey, enc.encode(text));
+            return b64(iv) + '.' + b64(ct);
+        }
+
+        async function addMsg(cid, msg) {
+            if (msg.text && !msg.cipher) msg.cipher = await encryptText(msg.text);
+            if (!msg.time) { msg.time = nowTime(); msg.ts = Date.now(); }
+            (state.chats[cid] ||= []).push(msg);
+            saveChats();
+        }
+
+        // ============ Ghi nhớ lịch sử trò chuyện ============
+        // Lịch sử được mã hóa AES-256-GCM bằng khóa sinh từ mật khẩu (PBKDF2), lưu theo từng tài khoản
+        async function deriveHistKey(password, user) {
+            const base = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveKey']);
+            return crypto.subtle.deriveKey(
+                { name: 'PBKDF2', salt: enc.encode('lanchat:' + user), iterations: 150000, hash: 'SHA-256' },
+                base, { name: 'AES-GCM', length: 256 }, false, ['encrypt', 'decrypt']);
+        }
+        const histStoreKey = () => 'lanchat-history:' + state.histId;
+
+        let saveTimer = null;
+        function saveChats() {
+            if (!state.histKey) return;
+            clearTimeout(saveTimer);
+            saveTimer = setTimeout(async () => {
+                const data = {
+                    chats: state.chats, unread: state.unread,
+                    extraContacts: state.contacts.filter(c => c.id > 100 && !c.real && !c.group), mem: state.mem || {}, seq: state.seq || 0,
+                };
+                const iv = crypto.getRandomValues(new Uint8Array(12));
+                const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, state.histKey, enc.encode(JSON.stringify(data)));
+                try { localStorage.setItem(histStoreKey(), JSON.stringify({ iv: b64(iv), ct: b64(ct) })); } catch (e) { }
+            }, 250);
+        }
+
+        async function loadChats() {
+            let raw = null;
+            try { raw = localStorage.getItem(histStoreKey()); } catch (e) { }
+            if (!raw) return 0;
+            try {
+                const { iv, ct } = JSON.parse(raw);
+                const unb64 = s => Uint8Array.from(atob(s), ch => ch.charCodeAt(0));
+                const plainBuf = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(iv) }, state.histKey, unb64(ct));
+                const data = JSON.parse(new TextDecoder().decode(plainBuf));
+                for (const c of data.extraContacts || []) if (!state.contacts.some(x => x.id === c.id)) state.contacts.push(c);
+                state.chats = data.chats || {};
+                state.unread = data.unread || {}; state.mem = data.mem || {}; state.seq = data.seq || 0;
+                return Object.values(state.chats).reduce((a, l) => a + l.length, 0);
+            } catch (e) { return 0; }
+        }
+
+        function msgTime(m) {
+            if (!m.ts) return m.time;
+            const d = new Date(m.ts);
+            return d.toDateString() === new Date().toDateString() ? m.time : d.toLocaleDateString('vi-VN') + ' ' + m.time;
+        }
+
+        let clearArmed = null;
+        function clearHistory() {
+            const btn = $('#clearChatBtn');
+            if (clearArmed !== state.active) {
+                clearArmed = state.active;
+                btn.textContent = '⚠ Bấm lần nữa để xóa';
+                setTimeout(() => { if (clearArmed !== null) { clearArmed = null; btn.textContent = '🗑 Xóa lịch sử'; } }, 3000);
+                return;
+            }
+            clearArmed = null;
+            btn.textContent = '🗑 Xóa lịch sử';
+            state.chats[state.active] = [];
+            saveChats();
+            renderMsgs(); renderConvs();
+            toast('Đã xóa lịch sử cuộc trò chuyện này');
+        }
+        $('#clearChatBtn').onclick = clearHistory;
+
+        function seedChats() {
+            const seed = {
+                1: [['in', 'Chào An, hợp đồng dịch vụ tháng này em soạn xong chưa?', '08:41'], ['out', 'Dạ em xong rồi, em ký trước rồi gửi chị duyệt ạ.', '08:43'], ['in', 'Ok em, gửi qua đây luôn nhé 👍', '08:44']],
+                2: [['in', 'Hợp đồng nào cần anh ký thì cứ gửi qua LAN Chat nhé.', '07:58']],
+                3: [['out', 'Chị Hà ơi, bảng lương tháng 10 có chưa ạ?', 'Hôm qua'], ['in', 'Chiều nay chị gửi nhé.', 'Hôm qua']],
+                4: [['in', 'Máy chủ nội bộ bảo trì lúc 22:00.', 'Thứ 2']],
+            };
+            return Promise.all(Object.entries(seed).map(async ([cid, list]) => {
+                for (const [dir, text, time] of list) await addMsg(cid, { dir, text, time });
+            })).then(() => { renderConvs(); renderMsgs(); });
+        }
+
+        function lastPreview(cid) {
+            const l = (state.chats[cid] || []).at(-1);
+            if (!l) return '';
+            return (l.dir === 'out' ? 'Bạn: ' : '') + (l.file ? '📄 ' + l.file : l.text);
+        }
+
+        function renderConvs() {
+            const q = $('#convSearch').value.toLowerCase();
+            $('#convList').innerHTML = state.contacts.filter(c => c.name.toLowerCase().includes(q)).map(c => `
+                <div class="conv ${c.id === state.active ? 'active' : ''}" data-id="${c.id}">
+                    <div class="av-wrap">${avatarHtml(c.name)}<span class="dot ${c.status}"></span></div>
+                    <div class="meta">
+                        <div class="row"><b>${esc(c.name)}</b><small>${(state.chats[c.id] || []).at(-1)?.time || ''}</small></div>
+                        <div class="row"><p>${esc(lastPreview(c.id))}</p>${state.unread[c.id] ? `<span class="chip">${state.unread[c.id]}</span>` : ''}</div>
+                    </div>
+                </div>`).join('');
+            $$('.conv').forEach(el => el.onclick = () => openChat(+el.dataset.id));
+            const total = Object.values(state.unread).reduce((a, b) => a + b, 0);
+            $('#unread').textContent = total;
+            $('#unread').classList.toggle('hidden', !total);
+        }
+        $('#convSearch').oninput = renderConvs;
+
+        function openChat(id, initial) {
+            state.active = id;
+            delete state.unread[id];
+            saveChats();
+            const c = state.contacts.find(x => x.id === id);
+            $('#tAvatar').textContent = initials(c.name);
+            $('#tAvatar').style.background = colorOf(c.name);
+            $('#tDot').className = 'dot ' + c.status;
+            $('#tName').textContent = c.name;
+            $('#groupInfoBtn').classList.toggle('hidden', !c.group);
+            $('#tInfo').textContent = c.group ? `Nhóm · ${c.members.length} thành viên · mã hóa cho từng người`
+                : `${c.role} · ${c.ip} · ${c.status === 'on' ? 'Đang online' : c.status === 'busy' ? 'Bận' : 'Offline'}`;
+            if (!initial) $('#chatLayout').classList.add('in-thread');
+            renderConvs();
+            renderMsgs();
+        }
+        $('#backBtn').onclick = () => $('#chatLayout').classList.remove('in-thread');
+
+        function renderMsgs() {
+            const list = state.chats[state.active] || [];
+            const box = $('#msgs');
+            box.classList.toggle('show-cipher', state.showCipher);
+            box.innerHTML = `<div class="e2e-banner">🔒 Tin nhắn được mã hóa end‑to‑end. Chỉ bạn và người nhận đọc được.</div>` +
+                list.map((m, i) => {
+                    const content = m.file
+                        ? `<div class="file-msg" data-open-sign><span class="pdf-ico">PDF</span><div><b>${esc(m.file)}</b><small>${esc(m.note)}</small></div></div>`
+                        : `${m.who ? `<small class="who">${esc(m.who)}</small>` : ''}<div class="bubble">${esc(m.text)}</div>`;
+                    return `<div class="msg ${m.dir}">${content}
+                        ${m.cipher ? `<div class="cipher mono">AES‑256‑GCM: ${m.cipher.slice(0, 120)}…</div>` : ''}
+                        <div class="info">${msgTime(m)} · 🔒${m.dir === 'out' ? ' ✓✓' : ''}</div></div>`;
+                }).join('');
+            box.scrollTop = box.scrollHeight;
+            $$('[data-open-sign]').forEach(el => el.onclick = () => go('sign'));
+        }
+
+        $('#cipherBtn').onclick = () => {
+            state.showCipher = !state.showCipher;
+            $('#cipherBtn').textContent = state.showCipher ? '🙈 Ẩn gói tin mã hóa' : '🔍 Xem gói tin mã hóa';
+            renderMsgs();
+        };
+
+        $('#composer').onsubmit = async e => {
+            e.preventDefault();
+            const text = $('#msgInput').value.trim();
+            if (!text) return;
+            $('#msgInput').value = '';
+            const cid = state.active;
+            const c = state.contacts.find(x => x.id === cid);
+            if (c.real || c.group) {
+                try { await sendReal(c, text); } catch (err) { toast(err.message); $('#msgInput').value = text; }
+                return;
+            }
+            await addMsg(cid, { dir: 'out', text });
+            renderMsgs(); renderConvs();
+            const reply = makeReply(text, c);
+            await sleep(c.status === 'off' ? 600 : 700);
+            setTyping(cid, true);
+            await sleep(Math.min(900 + reply.length * 25, 3200));
+            setTyping(cid, false);
+            await addMsg(cid, { dir: 'in', text: reply });
+            if (state.active === cid) renderMsgs(); else state.unread[cid] = (state.unread[cid] || 0) + 1;
+            renderConvs();
+        };
+
+        // ============ Tài khoản thật qua máy chủ LAN: đồng bộ danh bạ, nhắn tin nhiều người ============
+        const unb64 = s => Uint8Array.from(atob(s), ch => ch.charCodeAt(0));
+
+        async function api(path, body) {
+            const r = await fetch('api/' + path, {
+                method: body ? 'POST' : 'GET',
+                headers: { 'Content-Type': 'application/json', 'X-Token': state.token || '' },
+                body: body ? JSON.stringify(body) : undefined,
+            });
+            const d = await r.json().catch(() => ({}));
+            if (!r.ok) throw Object.assign(new Error(d.error || 'Máy chủ không phản hồi'), { status: r.status });
+            return d;
+        }
+
+        (async () => {
+            if (location.protocol === 'file:') return;
+            try {
+                const health = await api('health');
+                state.server = true;
+                state.lanIp = health.ip;
+                $('#fName').value = '';
+                $('#fPass').value = '';
+                updateHash();
+                $('#serverNote').textContent = '🟢 Đã kết nối máy chủ LAN. Tài khoản và tin nhắn dùng được trên mọi máy trong mạng.';
+            } catch (e) { }
+        })();
+
+        async function publishKeys() {
+            const spki = await crypto.subtle.exportKey('spki', keyPair.publicKey);
+            pemText = '-----BEGIN PUBLIC KEY-----\n' + b64(spki).match(/.{1,64}/g).join('\n') + '\n-----END PUBLIC KEY-----';
+            state.fingerprint = await sha256(spki);
+            return b64(spki);
+        }
+
+        // Khóa riêng được mã hóa bằng khóa sinh từ mật khẩu trước khi gửi lên máy chủ
+        async function serverAuth(name) {
+            let d;
+            if (mode === 'register') {
+                const pkcs8 = await crypto.subtle.exportKey('pkcs8', keyPair.privateKey);
+                const iv = crypto.getRandomValues(new Uint8Array(12));
+                const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, state.histKey, pkcs8);
+                d = await api('register', { name, passHash: state.passHash, pub: await publishKeys(), priv: { iv: b64(iv), ct: b64(ct) } });
+            } else {
+                d = await api('login', { name, passHash: state.passHash });
+                const pkcs8 = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(d.priv.iv) }, state.histKey, unb64(d.priv.ct));
+                const algo = { name: 'RSA-OAEP', hash: 'SHA-256' };
+                keyPair = {
+                    privateKey: await crypto.subtle.importKey('pkcs8', pkcs8, algo, true, ['decrypt']),
+                    publicKey: await crypto.subtle.importKey('spki', unb64(d.pub), algo, true, ['encrypt']),
+                };
+                await publishKeys();
+            }
+            state.token = d.token;
+            state.me = d.id;
+            state.user = d.name;
+            state.code = d.code;
+            state.people = {};
+            state.seen = new Set();
+        }
+
+        async function sealFor(ids, text) {
+            const raw = crypto.getRandomValues(new Uint8Array(32));
+            const iv = crypto.getRandomValues(new Uint8Array(12));
+            const aes = await crypto.subtle.importKey('raw', raw, 'AES-GCM', false, ['encrypt']);
+            const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, aes, enc.encode(text));
+            const keys = {};
+            for (const id of ids) {
+                const pub = id === state.me ? keyPair.publicKey : state.people[id]?.pub;
+                if (pub) keys[id] = b64(await crypto.subtle.encrypt({ name: 'RSA-OAEP' }, pub, raw));
+            }
+            return { iv: b64(iv), ct: b64(ct), keys };
+        }
+
+        async function openEnvelope(env) {
+            const wrapped = env.keys[state.me];
+            if (!wrapped) throw new Error('no key');
+            const raw = await crypto.subtle.decrypt({ name: 'RSA-OAEP' }, keyPair.privateKey, unb64(wrapped));
+            const aes = await crypto.subtle.importKey('raw', raw, 'AES-GCM', false, ['decrypt']);
+            return new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(env.iv) }, aes, unb64(env.ct)));
+        }
+
+        async function sendReal(c, text) {
+            const ids = c.group ? c.members : [state.me, c.id];
+            const env = await sealFor(ids, text);
+            await api('send', c.group ? { group: c.id, env } : { to: c.id, env });
+        }
+
+        async function applySync(d) {
+            for (const u of d.users) {
+                const p = state.people[u.id] ||= { id: u.id };
+                p.name = u.name;
+                if (p.pubB64 !== u.pub) {
+                    p.pubB64 = u.pub;
+                    p.pub = await crypto.subtle.importKey('spki', unb64(u.pub), { name: 'RSA-OAEP', hash: 'SHA-256' }, true, ['encrypt']);
+                    p.fp = await sha256(unb64(u.pub));
+                }
+                if (!u.friend) continue;
+                let c = state.contacts.find(x => x.id === u.id);
+                if (!c) {
+                    c = { id: u.id, name: u.name, role: 'Bạn bè', ip: 'Máy chủ LAN', real: true };
+                    state.contacts.unshift(c);
+                }
+                Object.assign(c, { pub: p.pub, fp: p.fp, status: u.online ? 'on' : 'off' });
+            }
+            for (const g of d.groups) {
+                const c = state.contacts.find(x => x.id === g.id);
+                if (c) { c.members = g.members; continue; }
+                state.contacts.unshift({ id: g.id, name: g.name, role: 'Nhóm', ip: '', status: 'on', fp: '', group: true, members: g.members });
+            }
+            // Bỏ người đã hủy kết bạn và nhóm đã rời khỏi danh sách
+            const friends = new Set(d.users.filter(u => u.friend).map(u => u.id));
+            const groups = new Set(d.groups.map(g => g.id));
+            state.contacts = state.contacts.filter(c => (!c.real || friends.has(c.id)) && (!c.group || groups.has(c.id)));
+            if (!state.contacts.some(c => c.id === state.active)) openChat(state.contacts[0].id, true);
+
+            const known = state.social ? new Set(state.social.incoming.map(u => u.id)) : null;
+            state.social = d;
+            if (known) for (const u of d.incoming) if (!known.has(u.id)) toast(`👋 ${u.name} muốn kết bạn với bạn`);
+
+            for (const msg of d.messages) {
+                if (state.seen.has(msg.seq)) continue;
+                state.seen.add(msg.seq);
+                const cid = msg.group ?? (msg.from === state.me ? msg.to : msg.from);
+                const mine = msg.from === state.me;
+                let text;
+                try { text = await openEnvelope(msg.env); } catch (e) { text = '[Không giải mã được tin nhắn này]'; }
+                await addMsg(cid, {
+                    dir: mine ? 'out' : 'in', text, cipher: msg.env.iv + '.' + msg.env.ct, ts: msg.ts,
+                    time: new Date(msg.ts).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
+                    who: msg.group && !mine ? msg.fromName : undefined,
+                });
+                if (!mine && !(state.active === cid && !$('#view-chat').classList.contains('hidden'))) state.unread[cid] = (state.unread[cid] || 0) + 1;
+            }
+            state.seq = Math.max(state.seq || 0, d.seq);
+            saveChats();
+            renderConvs();
+            renderContacts();
+            renderSocial();
+            if (d.messages.length) renderMsgs();
+            if (!$('#view-profile').classList.contains('hidden')) renderProfile();
+        }
+
+        const refresh = async () => applySync(await api(`sync?since=${state.seq || 0}&wait=0`));
+
+        async function syncLoop() {
+            let wait = 0;
+            while (true) {
+                try {
+                    await applySync(await api(`sync?since=${state.seq || 0}&wait=${wait}`));
+                    wait = 1;
+                } catch (e) {
+                    if (e.status === 401) {
+                        toast('Phiên đăng nhập đã hết hạn. Hãy đăng nhập lại');
+                        await sleep(2000);
+                        location.reload();
+                        return;
+                    }
+                    await sleep(3000);
+                }
+            }
+        }
+
+        // ============ Kết bạn ============
+        async function friendAction(action, id, done) {
+            try {
+                await api('friend', { action, id });
+                if (done) toast(done);
+                await refresh();
+            } catch (e) { toast(e.message); }
+        }
+
+        function bindFriendButtons(root) {
+            root.querySelectorAll('[data-friend]').forEach(b => b.onclick = () => {
+                const [action, id] = b.dataset.friend.split(':');
+                friendAction(action, +id, { request: 'Đã gửi lời mời kết bạn', accept: 'Các bạn đã là bạn bè' }[action]);
+            });
+        }
+
+        const socRow = (u, sub, acts) => `<div class="soc-row">${avatarHtml(u.name)}
+            <div class="grow"><b>${esc(u.name)}</b><small>${sub}</small></div><div class="acts">${acts}</div></div>`;
+        const onlineText = u => u.online ? 'Đang online' : 'Offline';
+
+        function renderSocial() {
+            const s = state.social;
+            if (!s) return;
+            $('#reqList').innerHTML = s.incoming.map(u => socRow(u, 'Muốn kết bạn với bạn',
+                `<button class="btn sm primary" data-friend="accept:${u.id}">Chấp nhận</button><button class="btn sm" data-friend="decline:${u.id}">Từ chối</button>`)).join('')
+                + s.outgoing.map(u => socRow(u, 'Đang chờ trả lời', `<button class="btn sm" data-friend="cancel:${u.id}">Hủy lời mời</button>`)).join('')
+                || '<div class="soc-empty">Chưa có lời mời nào.</div>';
+            $('#suggestList').innerHTML = s.suggestions.map(u => socRow(u,
+                u.mutual ? `${u.mutual} bạn chung · ${onlineText(u)}` : onlineText(u),
+                `<button class="btn sm" data-friend="request:${u.id}">＋ Kết bạn</button>`)).join('')
+                || '<div class="soc-empty">Chưa có gợi ý. Mời đồng nghiệp đăng ký tài khoản để kết bạn.</div>';
+            bindFriendButtons($('#socialPanel'));
+            $('#reqBadge').textContent = s.incoming.length;
+            $('#reqBadge').classList.toggle('hidden', !s.incoming.length);
+            $('#sThird').textContent = s.incoming.length;
+            $('#sFourth').textContent = s.total;
+            $('#netLabel').textContent = `Máy chủ LAN · ${s.total} tài khoản`;
+        }
+
+        function friendSearchModal() {
+            modal('Tìm và kết bạn', `
+                <div class="field"><label for="fSearch">Tên tài khoản</label><input class="input" id="fSearch" placeholder="Nhập tên người bạn muốn kết bạn"></div>
+                <div id="fResults"></div>`);
+            const box = $('#fResults');
+            const run = async () => {
+                const { users } = await api('users?q=' + encodeURIComponent($('#fSearch').value));
+                if (!$('#fResults')) return;
+                box.innerHTML = users.map(u => socRow(u, onlineText(u), {
+                    friend: '<span class="chip green">Bạn bè</span>',
+                    outgoing: '<span class="chip">Đã gửi lời mời</span>',
+                    incoming: `<button class="btn sm primary" data-friend="accept:${u.id}">Chấp nhận</button>`,
+                    none: `<button class="btn sm" data-friend="request:${u.id}">＋ Kết bạn</button>`,
+                }[u.relation])).join('') || '<div class="soc-empty">Không tìm thấy tài khoản nào.</div>';
+                box.querySelectorAll('[data-friend]').forEach(b => b.onclick = async () => {
+                    const [action, id] = b.dataset.friend.split(':');
+                    await friendAction(action, +id);
+                    run();
+                });
+            };
+            $('#fSearch').oninput = run;
+            run().catch(e => toast(e.message));
+            $('#fSearch').focus();
+        }
+
+        function unfriend(id) {
+            const c = state.contacts.find(x => x.id === id);
+            modal('Hủy kết bạn', `<p>Hủy kết bạn với <b>${esc(c.name)}</b>? Hai bạn sẽ không nhắn tin riêng được nữa cho đến khi kết bạn lại.</p>`,
+                `<button class="btn" data-close>Giữ lại</button><button class="btn danger" id="confirmUnfriend">Hủy kết bạn</button>`);
+            $('#confirmUnfriend').onclick = () => { closeModal(); friendAction('remove', id, `Đã hủy kết bạn với ${c.name}`); };
+        }
+
+        // ============ Kết bạn bằng mã QR ============
+        // Mã là một đường dẫn: quét bằng app hoặc camera điện thoại đều mở đúng chỗ kết bạn
+        function friendLink() {
+            const local = ['localhost', '127.0.0.1'].includes(location.hostname);
+            const host = local ? `${state.lanIp}:${location.port}` : location.host;
+            return `https://${host}/#add=${state.code}`;
+        }
+
+        function myQrModal() {
+            const qr = qrcode(0, 'M');
+            qr.addData(friendLink());
+            qr.make();
+            modal('Mã QR kết bạn của tôi', `
+                <img class="qr-img" id="myQr" alt="Mã QR kết bạn của ${esc(state.user)}" src="${qr.createDataURL(6, 16)}">
+                <p style="text-align:center"><b>${esc(state.user)}</b></p>
+                <p class="muted" style="text-align:center;font-size:.8rem">Người khác bấm Quét QR và đưa camera vào mã này là thành bạn bè ngay.</p>
+                <p class="muted" style="text-align:center;font-size:.76rem">Vân tay khóa: <span class="mono">${fmtFp(state.fingerprint)}</span></p>`,
+                `<button class="btn" id="newCode">Đổi mã QR</button><button class="btn primary" data-close>Xong</button>`);
+            $('#newCode').onclick = async () => {
+                try {
+                    state.code = (await api('friend/code', {})).code;
+                    myQrModal();
+                    toast('Đã đổi mã QR. Mã cũ không dùng được nữa');
+                } catch (e) { toast(e.message); }
+            };
+        }
+
+        const parseFriendCode = text => text.match(/#add=([\w-]+)/)?.[1] || null;
+
+        let stopScanner = null;
+        function stopScan() {
+            stopScanner?.();
+            stopScanner = null;
+        }
+
+        function readQr(source, w, h) {
+            const canvas = document.createElement('canvas');
+            const scale = Math.min(1, 800 / Math.max(w, h));
+            canvas.width = Math.round(w * scale);
+            canvas.height = Math.round(h * scale);
+            const ctx = canvas.getContext('2d', { willReadFrequently: true });
+            ctx.drawImage(source, 0, 0, canvas.width, canvas.height);
+            const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            return jsQR(img.data, img.width, img.height)?.data || null;
+        }
+
+        async function scanModal() {
+            modal('Quét mã QR kết bạn', `
+                <video class="scan-video" id="scanVideo" playsinline muted></video>
+                <p class="muted" id="scanMsg" style="text-align:center;margin:.5rem 0">Đang bật camera…</p>
+                <label class="btn sm" style="justify-self:center">🖼 Chọn ảnh mã QR<input type="file" accept="image/*" id="qrFile" hidden></label>`);
+            const msg = t => { if ($('#scanMsg')) $('#scanMsg').textContent = t; };
+            $('#qrFile').onchange = async e => {
+                const f = e.target.files[0];
+                if (!f) return;
+                const bmp = await createImageBitmap(f);
+                const code = parseFriendCode(readQr(bmp, bmp.width, bmp.height) || '');
+                if (code) onFriendCode(code); else msg('Ảnh này không có mã QR kết bạn. Hãy chọn ảnh khác');
+            };
+            if (!navigator.mediaDevices?.getUserMedia) {
+                msg('Trình duyệt chỉ cho bật camera khi mở app bằng địa chỉ https://. Bạn có thể chọn ảnh mã QR.');
+                return;
+            }
+            let stream;
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+            } catch (e) {
+                msg(e.name === 'NotAllowedError' ? 'Camera đang bị chặn. Hãy cho phép camera trên trình duyệt rồi quét lại, hoặc chọn ảnh mã QR.'
+                    : 'Không tìm thấy camera. Bạn có thể chọn ảnh mã QR.');
+                return;
+            }
+            const video = $('#scanVideo');
+            if (!video) { stream.getTracks().forEach(t => t.stop()); return; }
+            let timer = null;
+            stopScanner = () => { clearTimeout(timer); stream.getTracks().forEach(t => t.stop()); };
+            video.srcObject = stream;
+            await video.play().catch(() => { });
+            msg('Đưa mã QR của người muốn kết bạn vào khung hình');
+            const tick = () => {
+                if (video.videoWidth) {
+                    const code = parseFriendCode(readQr(video, video.videoWidth, video.videoHeight) || '');
+                    if (code) { onFriendCode(code); return; }
+                }
+                timer = setTimeout(tick, 250);
+            };
+            tick();
+        }
+
+        async function onFriendCode(code) {
+            stopScan();
+            try {
+                const u = await api('friend/scan', { code });
+                if (u.relation === 'friend') {
+                    closeModal();
+                    toast(`${u.name} đã là bạn bè của bạn`);
+                    return;
+                }
+                modal('Kết bạn', `<div class="person" style="padding:.4rem 0">${avatarHtml(u.name)}<b>${esc(u.name)}</b></div>
+                    <p class="muted">Sau khi kết bạn, hai bạn nhắn tin được ngay.</p>`,
+                    `<button class="btn" data-close>Để sau</button><button class="btn primary" id="confirmQr">Kết bạn</button>`);
+                $('#confirmQr').onclick = async () => {
+                    try {
+                        await api('friend/scan', { code, confirm: true });
+                        closeModal();
+                        toast(`Đã kết bạn với ${u.name}`);
+                        await refresh();
+                        go('chat');
+                        openChat(u.id);
+                    } catch (e) { toast(e.message); }
+                };
+            } catch (e) {
+                closeModal();
+                toast(e.message);
+            }
+        }
+
+        // Giao diện thật khi đăng nhập qua máy chủ LAN
+        function enterServerUi() {
+            for (const c of state.contacts) if (!c.real && !c.group) c.role += ' · trả lời tự động';
+            $('#meAddr').textContent = 'Máy chủ LAN';
+            $('#pAddr').textContent = 'Tài khoản trên máy chủ LAN';
+            $('#accAddr').textContent = 'Tài khoản trên máy chủ LAN';
+            const note = 'Bản sao đã mã hóa bằng mật khẩu của bạn được lưu trên máy chủ, để đăng nhập được trên máy khác';
+            $('#pPrivNote').textContent = note;
+            $('#aPrivNote').textContent = '🔒 ' + note;
+            $('#socialPanel').classList.remove('hidden');
+            $('#syncBtn').classList.remove('hidden');
+            $('#scanBtn').onclick = scanModal;
+            $('#sTotalLabel').textContent = 'Bạn bè';
+            $('#sThirdLabel').textContent = 'Lời mời chờ duyệt';
+            $('#sFourthLabel').textContent = 'Tài khoản trên LAN';
+            $('#addBtn').textContent = '＋ Kết bạn';
+            $('#addBtn').onclick = friendSearchModal;
+            $('#pScan').onclick = scanModal;
+            $('#myQrBtn').onclick = myQrModal;
+            $('#syncBtn').onclick = async () => {
+                try {
+                    await refresh();
+                    toast(`Đã đồng bộ danh bạ: ${state.contacts.filter(c => c.real).length} bạn bè`);
+                } catch (e) { toast(e.message); }
+            };
+        }
+
+        // ============ Nhóm trò chuyện ============
+        const checkList = people => people.map(c => `<label class="check-row"><input type="checkbox" data-member="${c.id}"><span>${esc(c.name)}</span></label>`).join('');
+
+        $('#groupBtn').onclick = () => {
+            const people = state.contacts.filter(c => c.real);
+            if (people.length < 2) { toast('Cần ít nhất 2 bạn bè để tạo nhóm. Hãy kết bạn trước nhé'); return; }
+            modal('Tạo nhóm trò chuyện', `
+                <div class="field"><label for="gName">Tên nhóm</label><input class="input" id="gName" placeholder="VD: Phòng Kế hoạch"></div>
+                <div class="field"><label>Thành viên</label>${checkList(people)}</div>`,
+                `<button class="btn" data-close>Hủy</button><button class="btn primary" id="saveGroup">Tạo nhóm</button>`);
+            $('#saveGroup').onclick = async () => {
+                const members = $$('[data-member]:checked').map(x => +x.dataset.member);
+                try {
+                    const g = await api('group', { name: $('#gName').value, members });
+                    closeModal();
+                    toast(`Đã tạo nhóm ${g.name}`);
+                    await refresh();
+                } catch (e) { toast(e.message); }
+            };
+        };
+
+        $('#groupInfoBtn').onclick = () => {
+            const c = state.contacts.find(x => x.id === state.active);
+            const names = c.members.map(id => id === state.me ? `${state.user} (bạn)` : state.people[id]?.name || 'Thành viên');
+            const addable = state.contacts.filter(x => x.real && !c.members.includes(x.id));
+            modal(`Thành viên nhóm ${esc(c.name)}`, `
+                <div class="field"><label>${c.members.length} thành viên</label>${names.map(n => `<div>${esc(n)}</div>`).join('')}</div>
+                ${addable.length ? `<div class="field"><label>Thêm bạn bè vào nhóm</label>${checkList(addable)}<small>Thành viên mới chỉ đọc được tin nhắn gửi sau khi vào nhóm.</small></div>` : ''}`,
+                `<button class="btn danger" id="leaveGroup">Rời nhóm</button>${addable.length ? '<button class="btn primary" id="addMembers">Thêm vào nhóm</button>' : ''}`);
+            if (addable.length) $('#addMembers').onclick = async () => {
+                try {
+                    await api('group/add', { group: c.id, members: $$('[data-member]:checked').map(x => +x.dataset.member) });
+                    closeModal();
+                    toast('Đã thêm thành viên');
+                    await refresh();
+                    openChat(c.id, true);
+                } catch (e) { toast(e.message); }
+            };
+            $('#leaveGroup').onclick = async e => {
+                if (!e.target.dataset.armed) {
+                    e.target.dataset.armed = '1';
+                    e.target.textContent = 'Bấm lần nữa để rời nhóm';
+                    return;
+                }
+                try {
+                    await api('group/leave', { group: c.id });
+                    closeModal();
+                    toast(`Đã rời nhóm ${c.name}`);
+                    await refresh();
+                } catch (err) { toast(err.message); }
+            };
+        };
+
+        // ============ Trò chuyện thông minh: hiểu ngữ cảnh, ghi nhớ và dùng dữ liệu thật trong app ============
+        const plain = s => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/đ/g, 'd');
+        const pick = arr => arr[Math.floor(Math.random() * arr.length)];
+        const has = (t, ...words) => words.some(w => new RegExp('(^|[^a-z])' + w + '($|[^a-z])').test(t));
+        const cap = s => s.charAt(0).toUpperCase() + s.slice(1);
+        const shorten = (s, n = 50) => s.length > n ? s.slice(0, n) + '…' : s;
+
+        const PERSONA = {
+            'Trưởng phòng': { self: 'chị', you: 'em' }, 'Giám đốc': { self: 'anh', you: 'em' },
+            'Kế toán': { self: 'chị', you: 'em' }, 'Kỹ thuật': { self: 'anh', you: 'em' },
+        };
+
+        // Kiến thức về ứng dụng: a là câu trả lời, more dùng khi người dùng hỏi tiếp
+        const KNOWLEDGE = [
+            {
+                id: 'e2e', keys: ['e2e', 'end to end', 'ma hoa', 'giai ma', 'bao mat', 'an toan'],
+                a: 'Tin nhắn được mã hóa AES‑256‑GCM ngay trên máy gửi, còn khóa AES được bọc bằng RSA của người nhận. Trên đường truyền chỉ thấy chuỗi ký tự ngẫu nhiên.',
+                more: 'Vì chỉ người nhận giữ khóa riêng nên chỉ họ mở được khóa AES. Bấm "Xem gói tin mã hóa" trong khung chat để xem dữ liệu đã mã hóa.',
+            },
+            {
+                id: 'sha', keys: ['sha', 'sha 256', 'sha256', 'bam', 'ma bam'],
+                a: 'SHA‑256 biến dữ liệu bất kỳ thành một chuỗi 64 ký tự hex. Đổi một ký tự đầu vào là kết quả đổi hoàn toàn, và không thể tính ngược.',
+                more: 'App dùng SHA‑256 để băm mật khẩu khi đăng nhập, tạo vân tay khóa và kiểm tra tài liệu có bị sửa hay không.',
+            },
+            {
+                id: 'rsa', keys: ['rsa', 'khoa rieng', 'khoa cong khai', 'private key', 'public key', 'cap khoa', 'khoa bi mat'],
+                a: 'Mỗi tài khoản có một cặp khóa RSA. Khóa công khai đưa cho người khác, khóa riêng chỉ nằm trên máy của bạn và dùng để giải mã, ký số.',
+                more: 'Bạn xem vân tay và khóa công khai ở Trang cá nhân, mục Hồ sơ định danh số.',
+            },
+            {
+                id: 'incremental', keys: ['incremental', 'incremental update', 'cap nhat tang dan', 'ky noi tiep', 'nhieu nguoi ky'],
+                a: 'Incremental Update nối mỗi chữ ký vào cuối file PDF, phần đã ký trước đó giữ nguyên từng byte. Nhờ vậy nhiều người ký nối tiếp mà chữ ký cũ vẫn hợp lệ.',
+                more: 'Trong mục Ký số PDF, phần Cấu trúc file cho thấy mỗi lần ký thêm một lớp "Cập nhật #n".',
+            },
+            {
+                id: 'tick', keys: ['tick xanh', 'adobe', 'foxit', 'acrobat'],
+                a: 'Tick xanh hiện trên Adobe hoặc Foxit khi chữ ký hợp lệ và chứng thư gốc LAN Chat Root CA đã được thêm vào danh sách tin cậy của phần mềm.',
+                more: 'Với Adobe: Preferences → Signatures → Identities & Trusted Certificates, rồi thêm chứng thư gốc.',
+            },
+            {
+                id: 'qr', keys: ['qr', 'ma qr', 'quet qr', 'them lien he', 'them ban', 'danh ba'],
+                a: 'Vào Danh bạ, bấm "Quét QR" để thêm liên hệ, hoặc "QR của tôi" để người khác quét mã của bạn.',
+                more: 'Mã QR chứa IP, cổng và khóa công khai. Bạn cũng có thể bấm "Thêm liên hệ" để nhập tay.',
+            },
+            {
+                id: 'howsign', keys: ['cach ky', 'ky the nao', 'ky nhu the nao', 'lam sao ky', 'lam sao de ky', 'ky so the nao', 'dat chu ky'],
+                a: 'Vào Ký số PDF, kéo khung chữ ký đến vị trí cần ký, bấm "Ký số bằng khóa cá nhân", rồi bấm "Chuyển người ký tiếp theo".',
+                more: 'Chữ ký đồ họa lưu ở Trang cá nhân sẽ được dùng tự động. Bạn cũng có thể đổi sang vẽ tay, con dấu hoặc ảnh ngay khi ký.',
+            },
+            {
+                id: 'history', keys: ['xoa lich su', 'lich su tin nhan', 'luu tin nhan', 'luu lich su'],
+                a: 'Lịch sử trò chuyện được mã hóa và lưu trên trình duyệt này theo từng tài khoản. Nút "Xóa lịch sử" trong khung chat sẽ xóa cuộc trò chuyện đang mở.',
+                more: 'Khóa lưu trữ sinh từ mật khẩu của bạn, nên đăng nhập bằng mật khẩu khác sẽ không thấy lịch sử cũ.',
+            },
+        ];
+
+        function memOf(c) {
+            state.mem ||= {};
+            return state.mem[c.id] ||= { topic: null, facts: {}, notes: [], said: [] };
+        }
+
+        // Chọn câu chưa nói gần đây để không lặp lại
+        function fresh(m, options) {
+            const pool = options.filter(o => !m.said.includes(o));
+            const choice = pick(pool.length ? pool : options);
+            m.said = [...m.said, choice].slice(-6);
+            return choice;
+        }
+
+        // Tính biểu thức không dùng eval: nhân chia trước, cộng trừ sau
+        function calc(t) {
+            const s = t.replace(/(\d)\.(\d{3})(?!\d)/g, '$1$2').replace(/(\d),(\d)/g, '$1.$2')
+                .replace(/\bcong\b/g, '+').replace(/\btru\b/g, '-')
+                .replace(/\bnhan( voi)?\b/g, '*').replace(/\bchia( cho)?\b/g, '/')
+                .replace(/(\d)\s*x\s*(?=\d)/g, '$1*');
+            const found = s.match(/\d+(\.\d+)?(\s*[-+*/]\s*\d+(\.\d+)?)+/);
+            if (!found) return null;
+            const toks = found[0].match(/\d+(\.\d+)?|[-+*/]/g);
+            const vals = [+toks[0]], ops = [];
+            for (let i = 1; i < toks.length; i += 2) {
+                const op = toks[i], v = +toks[i + 1];
+                if (op === '*') vals[vals.length - 1] *= v;
+                else if (op === '/') { if (v === 0) return { expr: found[0], err: true }; vals[vals.length - 1] /= v; }
+                else { ops.push(op); vals.push(v); }
+            }
+            const value = ops.reduce((acc, op, i) => op === '+' ? acc + vals[i + 1] : acc - vals[i + 1], vals[0]);
+            return { expr: found[0].replace(/\s*([-+*/])\s*/g, ' $1 ').replace(/\*/g, '×'), value };
+        }
+
+        // Ghi nhớ điều người dùng kể về mình
+        function learnFacts({ text, t, m }) {
+            const who = '(?:tôi|em|mình|tớ|anh|chị)';
+            const clean = s => s.trim().replace(/\s+(nhé|nha|ạ|nhe)$/i, '');
+            const isAsking = s => /(^| )(gi|nao|dau|sao)( |$|\?)/.test(plain(s));
+            let r = text.match(new RegExp(`(?:${who}\\s+tên(?:\\s+là)?|tên\\s+${who}\\s+là)\\s+([^,.!?\\n]+)`, 'i'));
+            if (r && !isAsking(r[1])) { m.facts.name = clean(r[1]); return 'name'; }
+            r = text.match(new RegExp(`${who}\\s+(?:rất\\s+|cũng\\s+)?thích\\s+([^,.!?\\n]+)`, 'i'));
+            if (r && !isAsking(r[1])) { m.facts.like = clean(r[1]); return 'like'; }
+            r = text.match(new RegExp(`${who}\\s+(?:đang\\s+|hiện\\s+)?(?:sống ở|quê ở|ở)\\s+([^,.!?\\n]+)`, 'i'));
+            if (r && !isAsking(r[1])) { m.facts.place = clean(r[1]); return 'place'; }
+            r = text.match(/(?:nhớ giúp|nhớ hộ|ghi nhớ|ghi chú)(?:\s+(?:tôi|em|mình|chị|anh))?(?:\s+(?:là|rằng))?\s*[:,]?\s*(.+)/i);
+            if (r && !isAsking(r[1]) && !has(t, 'nho gi')) { m.notes = [...m.notes, clean(r[1])].slice(-10); return 'note'; }
+            return null;
+        }
+
+        function docAnswer({ t, c, p, isQ }) {
+            const docs = state.docs, roles = SIGNERS();
+            const stage = { 'Trưởng phòng': 1, 'Giám đốc': 2 }[c.role];
+            const count = key => docs.filter(d => docStatus(d).key === key).length;
+            if (stage !== undefined) {
+                const mine = docs.filter(d => d.signerIdx === stage);
+                if (mine.length) return `${cap(p.self)} đã nhận ${mine.map(d => d.name).join(', ')} (${mine[0].signatures.length} chữ ký hợp lệ). ${cap(p.self)} kiểm tra rồi ký trong hôm nay nhé.`;
+                const earlier = docs.find(d => d.signerIdx < stage);
+                if (earlier) return `${cap(p.self)} chưa nhận được ${earlier.name}. File đang ở bước ${roles[earlier.signerIdx].role}, xong bước đó ${p.you} bấm "Chuyển người ký tiếp theo" nhé.`;
+                return `Hiện không có tài liệu nào chờ ${p.self} ký. Tất cả đã hoàn tất.`;
+            }
+            if (isQ || has(t, 'bao nhieu', 'may', 'danh sach'))
+                return `Theo Trung tâm tài liệu: ${count('todo')} cần ký, ${count('flow')} đang luân chuyển, ${count('done')} đã hoàn tất.`;
+            return `${cap(p.self)} nhận được thông tin rồi. Có gì cần ${p.self} kiểm tra trong tài liệu thì ${p.you} nhắn nhé.`;
+        }
+
+        const RULES = [
+            ['recall', ({ t, c, m, p, name }) => {
+                if (has(t, 'con nho', 'nho khong', 'luc nay', 'vua roi', 'vua noi', 'da noi gi', 'da nhan gi', 'hom truoc', 'lan truoc')) {
+                    const mine = (state.chats[c.id] || []).filter(x => x.dir === 'out' && x.text).slice(0, -1);
+                    if (!mine.length) return `${cap(p.self)} chưa thấy ${name} nhắn gì trước đó cả.`;
+                    const recent = mine.slice(-3).map(x => `• ${msgTime(x)}: “${shorten(x.text, 60)}”`).join('\n');
+                    return `Nhớ chứ! ${cap(p.self)} còn lưu ${mine.length} tin ${name} đã nhắn. Gần đây nhất:\n${recent}`;
+                }
+                if (has(t, 'ten (toi|em|minh) la gi', '(toi|em|minh) ten (la )?gi'))
+                    return m.facts.name ? `${cap(p.you)} tên là ${m.facts.name} mà.` : `Theo tài khoản thì ${p.you} là ${state.user}.`;
+                if (has(t, '(toi|em|minh) thich gi'))
+                    return m.facts.like ? `${cap(p.you)} nói thích ${m.facts.like}.` : `${cap(p.you)} chưa kể ${p.self} nghe ${p.you} thích gì.`;
+                if (has(t, '(toi|em|minh) (dang )?o dau'))
+                    return m.facts.place ? `${cap(p.you)} nói đang ở ${m.facts.place}.` : `${cap(p.you)} chưa kể ${p.self} nghe. Theo mạng LAN thì ${p.you} ở máy 192.168.1.10.`;
+                if (has(t, 'nho gi', 'ghi chu gi', 'ghi nho gi', 'nho nhung gi'))
+                    return m.notes.length ? `${cap(p.self)} đang ghi nhớ:\n${m.notes.map(n => '• ' + n).join('\n')}` : `${cap(p.self)} chưa có ghi chú nào từ ${p.you}.`;
+                return null;
+            }],
+            ['math', ({ t }) => {
+                const asked = has(t, 'bang', 'tinh', 'ket qua') || t.includes('=') || /^[\d\s.,+\-*/x()]+\??$/.test(t);
+                const r = asked ? calc(t) : null;
+                if (!r) return null;
+                if (r.err) return 'Không chia được cho 0 nhé.';
+                return `${r.expr} = ${r.value.toLocaleString('vi-VN', { maximumFractionDigits: 4 })}`;
+            }],
+            ['clock', ({ t }) => {
+                const now = new Date();
+                if (has(t, 'may gio roi', 'bay gio la may gio', 'gio la may gio'))
+                    return `Bây giờ là ${now.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}.`;
+                if (has(t, 'hom nay (la )?(ngay|thu) (may|nao|bao nhieu)', 'ngay may roi', 'hom nay la ngay gi'))
+                    return `Hôm nay là ${now.toLocaleDateString('vi-VN', { weekday: 'long', day: 'numeric', month: 'numeric', year: 'numeric' })}.`;
+                return null;
+            }],
+            ['online', ({ t }) => {
+                if (!has(t, 'ai (dang )?online', 'ai dang hoat dong', 'nhung ai online', 'may nguoi online')) return null;
+                const on = state.contacts.filter(x => x.status === 'on').map(x => x.name);
+                return on.length ? `Đang online: ${on.join(', ')}.` : 'Hiện chưa có ai online.';
+            }],
+            ['knowledge', ({ t, isQ }) => {
+                const found = KNOWLEDGE.find(k => has(t, ...k.keys));
+                if (!found || !(isQ || has(t, 'la gi', 'cach', 'huong dan', 'giai thich'))) return null;
+                return { text: found.a, topic: found.id };
+            }],
+            ['docs', ctx => has(ctx.t, 'tai lieu', 'hop dong', 'pdf', 'file', 'ky', 'ky so', 'duyet', 'phe duyet', 'chu ky', 'bao cao') ? docAnswer(ctx) : null],
+            ['meeting', ({ t, isQ, p }) => has(t.replace(/hop dong/g, ''), 'hop', 'cuoc hop', 'meeting')
+                ? (isQ ? 'Cuộc họp lúc 14:00 chiều nay ở phòng họp tầng 3 nhé.' : `Ok, ${p.self} sẽ có mặt đúng giờ.`) : null],
+            ['money', ({ t, c, p }) => has(t, 'luong', 'tien', 'thanh toan', 'hoa don', 'chi phi')
+                ? (c.role === 'Kế toán' ? `Bảng lương và chứng từ ${p.self} gửi trước 17:00 hôm nay nhé.` : `Phần này ${p.you} hỏi chị Hà bên Kế toán giúp ${p.self} nhé.`) : null],
+            ['tech', ({ t, c, p }) => has(t, 'may tinh', 'mang', 'wifi', 'loi', 'server', 'may chu', 'hong')
+                ? (c.role === 'Kỹ thuật' ? `${cap(p.self)} kiểm tra ngay, ${p.you} gửi giúp địa chỉ IP của máy đang lỗi nhé.` : `Lỗi kỹ thuật thì ${p.you} nhắn anh Huy bên Kỹ thuật nhé.`) : null],
+            ['feeling', ({ t, p, m }) => {
+                if (has(t, 'buon', 'met', 'chan', 'stress', 'ap luc', 'lo lang', 'that vong', 'kho qua'))
+                    return fresh(m, [`Nghe vậy ${p.self} cũng thấy lo cho ${p.you}. Có chuyện gì vậy, kể ${p.self} nghe được không?`, `${cap(p.you)} nghỉ một chút đi. Có việc gì ${p.self} đỡ được thì cứ nói nhé.`]);
+                if (has(t, 'vui', 'tuyet', 'hay qua', 'gioi qua', 'xong roi'))
+                    return fresh(m, ['Tuyệt quá! 🎉', `${cap(p.self)} mừng cho ${p.you} nhé!`]);
+                return null;
+            }],
+            ['smalltalk', ({ t, c, p, m, name }) => {
+                if (has(t, 'khoe khong', 'the nao roi', 'on khong')) return `${cap(p.self)} khỏe, cảm ơn ${name}! Còn ${p.you} thì sao?`;
+                if (has(t, 'cam on', 'thanks', 'thank you', 'tks')) return fresh(m, ['Không có gì đâu 😊', `Có gì cứ nhắn ${p.self} nhé!`]);
+                if (has(t, 'xin loi', 'sorry')) return 'Không sao đâu, đừng lo nhé.';
+                if (has(t, 'tam biet', 'bye', 'hen gap lai', 'di ngu')) return `Tạm biệt ${name}, hẹn gặp lại nhé 👋`;
+                if (has(t, 'ban la ai', 'la ai vay', 'lam gi o day')) return `${cap(p.self)} là ${c.name}, ${c.role} đây.`;
+                if (has(t, 'dang lam gi', 'lam gi vay', 'ban khong', 'ranh khong')) return fresh(m, [`${cap(p.self)} đang xử lý công việc, ${p.you} cần gì không?`, `${cap(p.self)} vừa xong việc, ${p.you} cứ nói đi.`]);
+                if (has(t, 'an com chua', 'an trua chua', 'an sang chua')) return `${cap(p.self)} ăn rồi, còn ${p.you}?`;
+                return null;
+            }],
+            ['when', ({ t, m }) => has(t, 'bao gio', 'khi nao', 'luc nao') ? fresh(m, ['Chắc khoảng 15:00 chiều nay nhé.', 'Trong hôm nay sẽ xong, có gì báo lại ngay.']) : null],
+            ['where', ({ t, p }) => has(t, 'o dau', 'cho nao') ? `${cap(p.self)} đang ở văn phòng tầng 3, cùng mạng LAN với ${p.you} đây.` : null],
+            ['agree', ({ t, m }) => has(t, 'ok', 'oke', 'duoc', 'vang', 'u', 'uh', 'dong y') ? fresh(m, ['Ok 👍', 'Tuyệt, vậy chốt thế nhé!']) : null],
+        ];
+
+        function makeReply(text, c) {
+            const t = plain(text).replace(/ky thuat/g, 'kythuat');
+            const p = PERSONA[c.role] || { self: 'mình', you: 'bạn' };
+            const m = memOf(c);
+            const name = m.facts.name || state.user.trim().split(/\s+/).pop();
+            const isQ = /\?\s*$/.test(text) || has(t, 'khong', 'chua', 'sao', 'gi', 'nao', 'dau', 'ai', 'bao gio', 'khi nao', 'may gio', 'bao nhieu', 'the nao', 'co phai');
+            const ctx = { text, t, c, p, m, name, isQ };
+
+            if (c.status === 'off') return `[Trả lời tự động] ${cap(p.self)} đang offline. Tin nhắn của ${name} đã được mã hóa và lưu lại, ${p.self} sẽ trả lời khi online nhé.`;
+
+            const greet = has(t, 'chao', 'hello', 'hi', 'alo', 'xin chao');
+            const opener = greet ? `Chào ${name}! ` : '';
+
+            // Điều người dùng vừa kể
+            const learned = learnFacts(ctx);
+            if (learned) return opener + {
+                name: `Rất vui được biết, ${m.facts.name}! ${cap(p.self)} nhớ rồi nhé.`,
+                like: `Hay đấy, ${p.self} nhớ là ${p.you} thích ${m.facts.like} rồi nhé.`,
+                place: `Ok, ${p.self} nhớ là ${p.you} ở ${m.facts.place}.`,
+                note: `Đã ghi nhớ: “${shorten(m.notes.at(-1) || '', 60)}”. Lúc nào cần ${p.you} hỏi lại ${p.self} nhé.`,
+            }[learned];
+
+            // Hỏi tiếp về chủ đề đang nói
+            const words = t.split(/\s+/).length;
+            const followUp = words <= 7 && /^(con|vay|the|tai sao|vi sao|sao|roi sao|cu the|noi ro|giai thich|y la|nghia la|vi du|sau do|tiep|them)/.test(t);
+            if (followUp && m.topic) {
+                const k = KNOWLEDGE.find(x => x.id === m.topic);
+                if (k) return k.more;
+            }
+
+            const parts = [];
+            for (const [id, rule] of RULES) {
+                if (parts.length && ['when', 'where', 'agree'].includes(id)) continue;
+                const r = rule(ctx);
+                if (!r) continue;
+                parts.push(typeof r === 'string' ? r : r.text);
+                m.topic = typeof r === 'string' ? id : r.topic;
+                if (parts.length === 2) break;
+            }
+            if (parts.length) return opener + parts.join('\n');
+            if (greet) return fresh(m, [`Chào ${name}! Có việc gì cần ${p.self} hỗ trợ không?`, `Chào ${name} 👋 ${cap(p.self)} đang online đây.`]);
+
+            if (isQ) return fresh(m, [
+                `${cap(p.self)} chưa có thông tin về “${shorten(text)}”. ${cap(p.you)} nói rõ hơn được không?`,
+                `Câu này ${p.self} chưa trả lời chắc được. ${cap(p.you)} cho ${p.self} thêm chi tiết nhé.`,
+            ]);
+            return fresh(m, [`${cap(p.self)} đã nhận: “${shorten(text)}” 👍`, `Ok, ${p.self} nắm rồi nhé.`, 'Đã nhận, cảm ơn nhé!']);
+        }
+
+        function setTyping(cid, on) {
+            state.typing = on ? cid : null;
+            const c = state.contacts.find(x => x.id === cid);
+            if (state.active !== cid) return;
+            $('#msgs .typing')?.remove();
+            if (on) {
+                $('#msgs').insertAdjacentHTML('beforeend', `<div class="msg in typing"><div class="bubble"><span></span><span></span><span></span></div><div class="info">${esc(c.name)} đang soạn tin…</div></div>`);
+                $('#msgs').scrollTop = $('#msgs').scrollHeight;
+            }
+        }
+
+        $('#sendPdfBtn').onclick = async () => {
+            const n = doc().signatures.length;
+            await addMsg(state.active, { dir: 'out', file: doc().name, note: n ? `Đã ký bởi ${n} người · Toàn vẹn` : 'Chưa có chữ ký' });
+            renderMsgs(); renderConvs();
+            toast('Đã gửi PDF qua kênh mã hóa');
+        };
+
+        // ============ Danh bạ ============
+        function renderContacts() {
+            const q = $('#contactSearch').value.toLowerCase();
+            const people = state.contacts.filter(c => !c.group && (!state.server || c.real));
+            const rows = people.filter(c => (c.name + c.ip).toLowerCase().includes(q));
+            $('#contactRows').innerHTML = rows.map(c => `
+                <tr>
+                    <td><div class="person">${avatarHtml(c.name)}<div><b>${esc(c.name)}</b><br><small class="muted">${esc(c.role)}</small></div></div></td>
+                    <td class="mono">${c.real ? c.ip : c.ip + ':54321'}</td>
+                    <td><span class="dot ${c.status}"></span> ${c.status === 'on' ? 'Online' : c.status === 'busy' ? 'Bận' : 'Offline'}</td>
+                    <td class="mono muted" style="font-size:.75rem">${fmtFp(c.fp)}</td>
+                    <td><button class="btn sm" data-chat="${c.id}">💬 Nhắn tin</button>${c.real ? ` <button class="btn sm danger" data-unfriend="${c.id}">Hủy kết bạn</button>` : ''}</td>
+                </tr>`).join('') || `<tr><td colspan="5" class="muted" style="text-align:center">${state.server && !q ? 'Chưa có bạn bè. Bấm “Kết bạn” hoặc chọn trong Gợi ý kết bạn.' : 'Không tìm thấy liên hệ'}</td></tr>`;
+            $$('[data-chat]').forEach(b => b.onclick = () => { go('chat'); openChat(+b.dataset.chat); });
+            $$('[data-unfriend]').forEach(b => b.onclick = () => unfriend(+b.dataset.unfriend));
+            $('#sTotal').textContent = people.length;
+            $('#sOnline').textContent = people.filter(c => c.status === 'on').length;
+        }
+        $('#contactSearch').oninput = renderContacts;
+
+        function modal(title, body, footer = '') {
+            stopScan();
+            $('#modalRoot').innerHTML = `<div class="modal-bg"><div class="modal">
+                <div class="card-h"><h3>${title}</h3><button class="btn sm" data-close>✕</button></div>
+                <div class="card-b">${body}</div>${footer ? `<div class="card-b" style="border-top:1px solid var(--border);display:flex;gap:.5rem;justify-content:flex-end">${footer}</div>` : ''}
+            </div></div>`;
+            const bg = $('.modal-bg');
+            bg.onclick = e => { if (e.target === bg || e.target.closest('[data-close]')) closeModal(); };
+            return bg;
+        }
+        const closeModal = () => { stopScan(); $('#modalRoot').innerHTML = ''; };
+
+        async function addContact(name, ip) {
+            const c = { id: Date.now(), name, role: 'Liên hệ mới', ip, status: 'on', fp: await sha256(name + ip) };
+            state.contacts.push(c);
+            renderContacts(); renderConvs();
+            toast(`Đã thêm ${name} vào danh bạ`);
+        }
+
+        // Mã QR minh họa: ma trận dựng từ vân tay khóa
+        function drawQr(canvas, seed) {
+            const n = 29, ctx = canvas.getContext('2d');
+            canvas.width = canvas.height = n;
+            ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, n, n);
+            ctx.fillStyle = '#0f172a';
+            let bits = '';
+            for (const ch of seed) bits += parseInt(ch, 16).toString(2).padStart(4, '0');
+            for (let y = 1; y < n - 1; y++) for (let x = 1; x < n - 1; x++)
+                if (bits[(y * 31 + x * 7) % bits.length] === '1') ctx.fillRect(x, y, 1, 1);
+            for (const [ox, oy] of [[1, 1], [n - 8, 1], [1, n - 8]]) {
+                ctx.fillStyle = '#fff'; ctx.fillRect(ox - 1, oy - 1, 9, 9);
+                ctx.fillStyle = '#0f172a'; ctx.fillRect(ox, oy, 7, 7);
+                ctx.fillStyle = '#fff'; ctx.fillRect(ox + 1, oy + 1, 5, 5);
+                ctx.fillStyle = '#0f172a'; ctx.fillRect(ox + 2, oy + 2, 3, 3);
+            }
+        }
+
+        $('#myQrBtn').onclick = () => {
+            modal('Mã QR của tôi', `
+                <canvas class="qr" id="qrCanvas"></canvas>
+                <p style="text-align:center"><b>${esc(state.user)}</b><br><span class="mono muted">192.168.1.10:54321</span></p>
+                <p class="muted" style="text-align:center;font-size:.78rem">Mã chứa IP, cổng và khóa công khai. Người khác quét mã này để thêm bạn.<br>Vân tay: <span class="mono">${fmtFp(state.fingerprint)}</span></p>`);
+            drawQr($('#qrCanvas'), state.fingerprint);
+        };
+
+        $('#scanBtn').onclick = () => {
+            modal('Quét mã QR', `<div class="scan"></div><p class="muted" style="text-align:center">Đưa mã QR của đồng nghiệp vào khung…</p>`);
+            setTimeout(() => {
+                if (!$('.scan')) return;
+                closeModal();
+                addContact('Vũ Thanh Tâm', '192.168.1.' + (60 + Math.floor(Math.random() * 40)));
+            }, 2200);
+        };
+
+        $('#addBtn').onclick = () => {
+            modal('Thêm liên hệ thủ công', `
+                <div class="field"><label>Tên hiển thị</label><input class="input" id="nName" placeholder="VD: Nguyễn Thị Lan"></div>
+                <div class="field"><label>Địa chỉ IP</label><input class="input mono" id="nIp" placeholder="192.168.1.70"></div>
+                <div class="field"><label>Khóa công khai (PEM)</label><textarea class="input mono" rows="4" style="font-size:.72rem" placeholder="-----BEGIN PUBLIC KEY-----"></textarea></div>`,
+                `<button class="btn" data-close>Hủy</button><button class="btn primary" id="saveContact">Lưu</button>`);
+            $('#saveContact').onclick = () => {
+                const name = $('#nName').value.trim(), ip = $('#nIp').value.trim();
+                if (!name || !/^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) { toast('Nhập tên và địa chỉ IP hợp lệ'); return; }
+                closeModal();
+                addContact(name, ip);
+            };
+        };
+
+        // ============ Ký số PDF ============
+        const SIGNERS = () => [
+            { name: state.user, role: 'Nhân viên', reason: 0 },
+            { name: 'Trần Thị Bình', role: 'Trưởng phòng', reason: 1 },
+            { name: 'Lê Minh Cường', role: 'Giám đốc', reason: 2 },
+        ];
+        const PAGE_CONTENT = {
+            1: `<h4>HỢP ĐỒNG DỊCH VỤ</h4><div class="sub">Số: 15/2026/HĐ‑LAN · Ngày 15 tháng 10 năm 2026</div>
+                <p>Căn cứ Bộ luật Dân sự năm 2015 và nhu cầu thực tế của hai bên, chúng tôi gồm:</p>
+                <p><b>BÊN A:</b> Công ty TNHH Giải pháp Mạng Nội Bộ, đại diện bởi Ông Lê Minh Cường, chức vụ Giám đốc.</p>
+                <p><b>BÊN B:</b> Công ty Cổ phần Dịch vụ Số, đại diện bởi Bà Phạm Thu Hà.</p>
+                <p class="t">Hai bên thống nhất ký hợp đồng cung cấp dịch vụ bảo trì hệ thống mạng nội bộ với giá trị <b>120.000.000 đồng</b> (một trăm hai mươi triệu đồng chẵn).</p>
+                <p>Thời hạn hợp đồng là 12 tháng kể từ ngày ký. Bên B cam kết hỗ trợ kỹ thuật trong vòng 4 giờ làm việc.</p>`,
+            2: `<h4>ĐIỀU KHOẢN THỰC HIỆN</h4><div class="sub">Điều 2 – Điều 5</div>
+                <p><b>Điều 2.</b> Bên A thanh toán thành hai đợt: 50% sau khi ký và 50% sau khi nghiệm thu.</p>
+                <p><b>Điều 3.</b> Bên B bảo mật mọi thông tin của Bên A trong và sau thời hạn hợp đồng.</p>
+                <p><b>Điều 4.</b> Mọi tranh chấp được giải quyết bằng thương lượng, nếu không thành thì đưa ra Tòa án có thẩm quyền.</p>
+                <p><b>Điều 5.</b> Hợp đồng được lập thành bản điện tử, ký số bởi các bên và có giá trị pháp lý như bản giấy.</p>`,
+            3: `<h4>XÁC NHẬN CỦA CÁC BÊN</h4><div class="sub">Trang ký</div>
+                <p>Các bên đã đọc, hiểu rõ và đồng ý với toàn bộ nội dung hợp đồng.</p>
+                <p style="margin-top:2rem"><b>ĐẠI DIỆN BÊN A</b> &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <b>ĐẠI DIỆN BÊN B</b></p>`,
+        };
+
+        let sigMode = 'draw', sigImage = null, uploadedImg = null;
+        const pad = () => $('#pad');
+
+        function initSign() {
+            loadSignerSig();
+            renderPage();
+            renderSignPanel();
+        }
+
+        // Chữ ký đồ họa đã lưu ở Trang cá nhân được dùng khi đến lượt bạn ký
+        function loadSignerSig() {
+            const d = doc();
+            if (d.signerIdx === 0 && state.mySig) drawImageToPad(state.mySig);
+            else if (sigMode === 'stamp') drawStamp(SIGNERS()[Math.min(d.signerIdx, 2)].role);
+            else drawSample();
+        }
+
+        function drawImageToPad(src) {
+            const img = new Image();
+            img.onload = () => {
+                const c = pad();
+                clearPad();
+                c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+                commitPad();
+            };
+            img.src = src;
+        }
+
+        // Hiển thị trang của file PDF thật bằng pdf.js
+        let renderToken = 0;
+        async function renderPdfPage(pg) {
+            const token = ++renderToken;
+            const p = await doc().pdf.getPage(state.page);
+            if (token !== renderToken) return;
+            const base = p.getViewport({ scale: 1 });
+            pg.style.aspectRatio = `${base.width} / ${base.height}`;
+            const vp = p.getViewport({ scale: 2 });
+            const canvas = pg.querySelector('.pdf-canvas');
+            canvas.width = vp.width;
+            canvas.height = vp.height;
+            await p.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+        }
+
+        function renderThumbs() {
+            $('#thumbs').innerHTML = Array.from({ length: PAGES() }, (_, i) => {
+                const p = i + 1, signed = doc().signatures.some(s => s.page === p);
+                return `<div class="thumb ${p === state.page ? 'active' : ''}" data-p="${p}">
+                    ${'<i style="width:60%;margin:0 auto 6px"></i>' + [90, 100, 80, 95, 70, 100, 85].map(w => `<i style="width:${w}%"></i>`).join('')}
+                    ${signed ? '<b class="sdot"></b>' : ''}<span>Trang ${p}</span></div>`;
+            }).join('');
+            $$('.thumb').forEach(t => t.onclick = () => { state.page = +t.dataset.p; renderPage(); });
+        }
+
+        function renderPage() {
+            const pg = $('#page');
+            pg.classList.toggle('tampered', doc().tampered);
+            const sigs = doc().signatures.filter(s => s.page === state.page);
+            const signerDone = doc().signerIdx >= SIGNERS().length;
+            const isPdf = !!doc().pdf;
+            pg.classList.toggle('pdf', isPdf);
+            if (!isPdf) pg.style.aspectRatio = '';
+            $('#docName').textContent = '📄 ' + doc().name;
+            const content = isPdf
+                ? '<canvas class="pdf-canvas"></canvas>'
+                : PAGE_CONTENT[state.page].replace('HỢP ĐỒNG DỊCH VỤ', esc(doc().title.toUpperCase()));
+            pg.innerHTML = content +
+                sigs.map(s => `<div class="sig-place done" style="left:${s.x}%;top:${s.y}%">
+                    <img src="${s.img}" alt=""><span class="ok">✓</span> Ký số bởi: <b>${esc(s.signer)}</b><br>Ngày ký: ${s.time}</div>`).join('') +
+                (signerDone || doc().signatures.length > doc().signerIdx ? '' : `<div class="sig-place draft" id="draft" tabindex="0" style="left:${state.draft.x}%;top:${state.draft.y}%">
+                    <img src="${sigImage || ''}" alt=""> Ký số bởi: <b>${esc(SIGNERS()[doc().signerIdx].name)}</b><br>Kéo để đặt vị trí</div>`);
+            $('#pageLabel').textContent = `Trang ${state.page} / ${PAGES()}`;
+            renderThumbs();
+            bindDraft();
+            if (isPdf) renderPdfPage(pg);
+        }
+
+        $('#prevPage').onclick = () => { if (state.page > 1) { state.page--; renderPage(); } };
+        $('#nextPage').onclick = () => { if (state.page < PAGES()) { state.page++; renderPage(); } };
+
+        function bindDraft() {
+            const d = $('#draft'), pg = $('#page');
+            if (!d) return;
+            let start = null;
+            const clampPos = (x, y) => {
+                const maxX = 100 - d.offsetWidth / pg.clientWidth * 100;
+                const maxY = 100 - d.offsetHeight / pg.clientHeight * 100;
+                state.draft = { x: Math.max(0, Math.min(maxX, x)), y: Math.max(0, Math.min(maxY, y)) };
+                d.style.left = state.draft.x + '%';
+                d.style.top = state.draft.y + '%';
+            };
+            d.onpointerdown = e => {
+                d.setPointerCapture(e.pointerId);
+                start = { mx: e.clientX, my: e.clientY, x: state.draft.x, y: state.draft.y };
+            };
+            d.onpointermove = e => {
+                if (!start) return;
+                clampPos(start.x + (e.clientX - start.mx) / pg.clientWidth * 100,
+                    start.y + (e.clientY - start.my) / pg.clientHeight * 100);
+            };
+            d.onpointerup = d.onpointercancel = () => start = null;
+            d.onkeydown = e => {
+                const k = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[e.key];
+                if (!k) return;
+                e.preventDefault();
+                const step = e.shiftKey ? 5 : 1;
+                clampPos(state.draft.x + k[0] * step, state.draft.y + k[1] * step);
+            };
+        }
+
+        // --- Khung vẽ chữ ký ---
+        function setupPad() {
+            const c = pad(), ctx = c.getContext('2d');
+            let drawing = false;
+            const pt = e => {
+                const r = c.getBoundingClientRect();
+                return [(e.clientX - r.left) * c.width / r.width, (e.clientY - r.top) * c.height / r.height];
+            };
+            c.onpointerdown = e => {
+                if (sigMode !== 'draw') return;
+                drawing = true;
+                c.setPointerCapture(e.pointerId);
+                ctx.beginPath();
+                ctx.moveTo(...pt(e));
+            };
+            c.onpointermove = e => {
+                if (!drawing) return;
+                ctx.lineWidth = 4; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = '#1d3fa8';
+                ctx.lineTo(...pt(e));
+                ctx.stroke();
+            };
+            c.onpointerup = c.onpointercancel = () => { if (drawing) { drawing = false; commitPad(); } };
+        }
+
+        function commitPad() {
+            sigImage = pad().toDataURL('image/png');
+            const img = $('#draft img');
+            if (img) img.src = sigImage;
+        }
+
+        function clearPad() {
+            const c = pad();
+            c.getContext('2d').clearRect(0, 0, c.width, c.height);
+        }
+
+        function drawSample() {
+            const ctx = pad().getContext('2d');
+            clearPad();
+            ctx.lineWidth = 4; ctx.lineCap = 'round'; ctx.strokeStyle = '#1d3fa8';
+            ctx.beginPath();
+            ctx.moveTo(110, 140);
+            ctx.bezierCurveTo(150, 30, 190, 180, 240, 95);
+            ctx.bezierCurveTo(280, 40, 300, 160, 350, 115);
+            ctx.bezierCurveTo(400, 70, 430, 150, 500, 80);
+            ctx.stroke();
+            commitPad();
+        }
+
+        function drawStamp(name) {
+            const ctx = pad().getContext('2d'), cx = 300, cy = 100, r = 88;
+            clearPad();
+            ctx.save();
+            ctx.strokeStyle = ctx.fillStyle = '#dc2626';
+            ctx.lineWidth = 5; ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
+            ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(cx, cy, r - 14, 0, Math.PI * 2); ctx.stroke();
+            ctx.textAlign = 'center';
+            ctx.font = '800 22px Inter, sans-serif'; ctx.fillText('LAN CHAT', cx, cy - 10);
+            ctx.font = '700 15px Inter, sans-serif'; ctx.fillText('ĐÃ PHÊ DUYỆT', cx, cy + 16);
+            ctx.font = '600 12px Inter, sans-serif'; ctx.fillText(name.toUpperCase(), cx, cy + 40);
+            ctx.font = '22px sans-serif'; ctx.fillText('★', cx, cy - 42);
+            ctx.restore();
+            commitPad();
+        }
+
+        function drawUploaded() {
+            const c = pad(), ctx = c.getContext('2d');
+            clearPad();
+            if (!uploadedImg) return commitPad();
+            const s = Math.min(c.width / uploadedImg.width, c.height / uploadedImg.height);
+            const w = uploadedImg.width * s, h = uploadedImg.height * s;
+            ctx.drawImage(uploadedImg, (c.width - w) / 2, (c.height - h) / 2, w, h);
+            commitPad();
+        }
+
+        $$('.tabs button').forEach(b => b.onclick = () => {
+            $$('.tabs button').forEach(x => x.classList.remove('active'));
+            b.classList.add('active');
+            sigMode = b.dataset.sig;
+            $('#uploadLbl').classList.toggle('hidden', sigMode !== 'upload');
+            if (sigMode === 'draw') { clearPad(); commitPad(); }
+            if (sigMode === 'stamp') drawStamp(SIGNERS()[Math.min(doc().signerIdx, 2)].role);
+            if (sigMode === 'upload') drawUploaded();
+        });
+        $('#clearPad').onclick = () => { clearPad(); commitPad(); };
+        $('#uploadInput').onchange = e => {
+            const f = e.target.files[0];
+            if (!f) return;
+            const img = new Image();
+            img.onload = () => { uploadedImg = img; drawUploaded(); };
+            img.src = URL.createObjectURL(f);
+        };
+
+        function renderSignPanel() {
+            const signers = SIGNERS();
+            const done = doc().signerIdx >= signers.length;
+            const cur = signers[Math.min(doc().signerIdx, signers.length - 1)];
+            $('#flow').innerHTML = signers.map((s, i) =>
+                `<span class="${i < doc().signatures.length ? 'done' : i === doc().signerIdx ? 'cur' : ''}">${i < doc().signatures.length ? '✓ ' : ''}${s.role}</span>`
+            ).join('<span style="border:0;padding:0">→</span>');
+            $('#signerAv').textContent = initials(cur.name);
+            $('#signerAv').style.background = colorOf(cur.name);
+            $('#signerName').textContent = done ? 'Đã đủ chữ ký' : cur.name;
+            $('#signerRole').textContent = done ? 'Quy trình phê duyệt hoàn tất' : `${cur.role} · CN=${cur.name}`;
+            $('#reason').selectedIndex = cur.reason;
+            const signedThisTurn = doc().signatures.length > doc().signerIdx;
+            $('#signBtn').disabled = done || signedThisTurn;
+            $('#passBtn').disabled = !signedThisTurn || done;
+            $('#passBtn').textContent = doc().signerIdx === signers.length - 1 && signedThisTurn ? '✅ Hoàn tất quy trình' : '📨 Chuyển người ký tiếp theo';
+            renderLayers();
+        }
+
+        function renderLayers(animateLast) {
+            const items = [`<div class="layer"><span><b>Bản gốc</b></span><span class="muted">Nội dung · %%EOF</span></div>`]
+                .concat(doc().signatures.map((s, i) =>
+                    `<div class="layer ${animateLast && i === doc().signatures.length - 1 ? 'new' : ''}" style="border-left-color:${['#2563eb', '#7c3aed', '#16a34a'][i]}">
+                        <span><b>Cập nhật #${i + 1}</b> · ${esc(s.signer)}</span><span class="muted">+${s.bytes} B · %%EOF</span></div>`));
+            $('#layers').innerHTML = items.join('');
+        }
+
+        // Mỗi chữ ký là một lần cập nhật tăng dần nối vào cuối file
+        async function createSignature(d, signer, reason, page, x, y, img, when = new Date()) {
+            const prevBytes = 48213 + d.signatures.reduce((a, s) => a + s.bytes, 0);
+            const sig = {
+                rev: d.signatures.length + 1,
+                signer: signer.name, role: signer.role, reason,
+                page, x, y, img,
+                time: when.toLocaleString('vi-VN'),
+                serial: (await sha256('cert:' + signer.name)).slice(0, 16).toUpperCase(),
+                digest: await sha256(d.name + ':' + prevBytes),
+                bytes: 9800 + Math.floor(Math.random() * 1200),
+                range: `[0 ${prevBytes} ${prevBytes + 8200} ${1400 + d.signatures.length * 30}]`,
+            };
+            d.signatures.push(sig);
+            return sig;
+        }
+
+        $('#signBtn').onclick = async () => {
+            const signer = SIGNERS()[doc().signerIdx];
+            if (!sigImage) commitPad();
+            const sig = await createSignature(doc(), signer, $('#reason').value, state.page, state.draft.x, state.draft.y, sigImage);
+            doc().tampered = false;
+            addHistory('✍️', `${signer.name} ký số (Rev. ${sig.rev}) · trang ${sig.page}`, doc().name);
+            renderPage();
+            renderSignPanel();
+            renderLayers(true);
+            $('#passBtn').disabled = false;
+            toast(`✓ ${signer.name} đã ký số tại trang ${sig.page}`);
+        };
+
+        $('#passBtn').onclick = async () => {
+            const signers = SIGNERS();
+            doc().signerIdx++;
+            if (doc().signerIdx >= signers.length) {
+                toast('✅ Đã đủ 3 chữ ký. Tài liệu sẵn sàng lưu trữ.');
+                addHistory('✅', 'Hoàn tất quy trình ký: đủ 3 chữ ký hợp lệ', doc().name);
+            } else {
+                addHistory('📨', `Chuyển tiếp cho ${signers[doc().signerIdx].name}`, doc().name);
+                const next = signers[doc().signerIdx];
+                const c = state.contacts.find(x => x.name === next.name);
+                if (c) await addMsg(c.id, { dir: 'out', file: doc().name, note: `Đã ký bởi ${doc().signatures.length} người · Toàn vẹn` });
+                renderConvs();
+                toast(`📨 Đã chuyển file cho ${next.name} qua LAN Chat`);
+                if (sigMode === 'stamp') drawStamp(next.role); else if (sigMode === 'draw') drawSample();
+                state.draft = { x: state.draft.x > 40 ? 6 : 58, y: state.draft.y };
+            }
+            renderPage();
+            renderSignPanel();
+        };
+
+        // ============ Kiểm tra chữ ký ============
+        function renderVerify() {
+            const sigs = doc().signatures;
+            const bad = doc().tampered && sigs.length;
+            $('#verifyDoc').innerHTML = state.docs.map(d => `<option value="${d.id}" ${d === doc() ? 'selected' : ''}>${esc(d.name)}</option>`).join('');
+            const banner = $('#vBanner');
+            banner.className = 'verify-banner' + (bad ? ' bad' : sigs.length ? '' : ' none');
+            banner.innerHTML = !sigs.length
+                ? `<span class="tick none">?</span><div><b>Tài liệu chưa có chữ ký số</b><br><span class="muted">Vào mục Ký số PDF để ký tài liệu.</span></div>`
+                : bad
+                    ? `<span class="tick bad">✕</span><div><b>Tài liệu đã bị thay đổi sau khi ký</b><br><span class="muted">Mã băm SHA‑256 không khớp. Các chữ ký không còn hợp lệ.</span></div>`
+                    : `<span class="tick">✓</span><div><b>Đã ký và tất cả chữ ký đều hợp lệ</b><br><span class="muted">${sigs.length} chữ ký · Tài liệu không bị thay đổi kể từ khi ký</span></div>`;
+
+            $('#sigList').innerHTML = sigs.length ? sigs.map(s => `
+                <div class="sig-item">
+                    <div class="sig-head">
+                        <span class="tick sm ${bad ? 'bad' : ''}">${bad ? '✕' : '✓'}</span>
+                        <div class="grow"><b>Rev. ${s.rev}: ${esc(s.signer)}</b><small>${s.role} · ${s.time} · Trang ${s.page}</small></div>
+                        <span class="chip ${bad ? 'red' : 'green'}">${bad ? 'Không hợp lệ' : 'Hợp lệ'}</span>
+                    </div>
+                    <div class="sig-body">
+                        <dl class="kv">
+                            <dt>Người ký</dt><dd>CN=${esc(s.signer)}, O=LAN Chat, C=VN</dd>
+                            <dt>Tổ chức cấp</dt><dd>CN=LAN Chat Root CA</dd>
+                            <dt>Số serial</dt><dd class="mono">${s.serial}</dd>
+                            <dt>Lý do</dt><dd>${esc(s.reason)}</dd>
+                            <dt>Thuật toán</dt><dd>RSA‑4096 · SHA‑256 · PAdES B‑B</dd>
+                            <dt>Message digest</dt><dd class="mono" style="font-size:.72rem">${s.digest}</dd>
+                            <dt>ByteRange</dt><dd class="mono">${s.range}</dd>
+                            <dt>Toàn vẹn</dt><dd style="color:var(--${bad ? 'red' : 'green'})">${bad ? '✕ Nội dung đã bị sửa' : '✓ Không bị thay đổi'}</dd>
+                        </dl>
+                    </div>
+                </div>`).join('')
+                : `<div class="empty"><div>🛡️</div>Chưa có chữ ký nào trên tài liệu.</div>`;
+            $$('.sig-head').forEach(h => h.onclick = () => h.parentElement.classList.toggle('open'));
+            $('.sig-item')?.classList.add('open');
+
+            $('#readerPreview').innerHTML = sigs.length ? `
+                <div class="verify-banner ${bad ? 'bad' : ''}" style="margin-bottom:.8rem;padding:.7rem .9rem">
+                    <span class="tick sm ${bad ? 'bad' : ''}">${bad ? '✕' : '✓'}</span>
+                    <b style="font-size:.85rem">${bad ? 'At least one signature is invalid.' : 'Signed and all signatures are valid.'}</b>
+                </div>
+                ${sigs.map(s => `<div class="person" style="padding:.45rem 0"><span class="tick sm ${bad ? 'bad' : ''}">${bad ? '✕' : '✓'}</span>
+                    <div><b style="font-size:.85rem">Rev. ${s.rev}: Signed by ${esc(s.signer)}</b><br><small class="muted">${s.time}</small></div></div>`).join('')}
+                <p class="muted" style="font-size:.76rem;margin-top:.8rem">Tick xanh hiển thị khi chứng thư gốc "LAN Chat Root CA" đã được thêm vào danh sách tin cậy của Adobe hoặc Foxit Reader.</p>`
+                : `<div class="empty"><div>📄</div>Trình đọc PDF sẽ hiển thị danh sách người ký tại đây.</div>`;
+            $('#tamperBtn').textContent = doc().tampered ? '↺ Khôi phục bản gốc' : '⚠ Thử sửa tài liệu';
+        }
+
+        $('#tamperBtn').onclick = () => {
+            if (!doc().signatures.length) { toast('Hãy ký tài liệu trước'); return; }
+            doc().tampered = !doc().tampered;
+            addHistory(doc().tampered ? '⚠️' : '↺', doc().tampered ? 'Kiểm tra toàn vẹn: phát hiện nội dung bị sửa' : 'Khôi phục bản gốc, chữ ký hợp lệ trở lại', doc().name);
+            renderVerify();
+            renderPage();
+            toast(doc().tampered ? 'Đã sửa số tiền trong hợp đồng: chữ ký bị vô hiệu' : 'Đã khôi phục bản gốc');
+        };
+
+        $('#exportBtn').onclick = () => {
+            if (!doc().signatures.length) { toast('Chưa có chữ ký để xuất'); return; }
+            const data = doc().signatures.map(({ img, ...s }) => ({ ...s, valid: !doc().tampered }));
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
+            a.download = 'thong_tin_chu_ky.json';
+            a.click();
+        };
+
+        // ============ Trung tâm tài liệu ============
+        let docSeq = 0;
+        function newDoc(name, title, from, pdf = null) {
+            return { id: ++docSeq, name, title, from, pdf, signatures: [], signerIdx: 0, tampered: false, created: new Date() };
+        }
+
+        function addHistory(icon, text, docName, when = new Date()) {
+            state.history.unshift({ icon, text, doc: docName, time: when.toLocaleString('vi-VN') });
+            state.history.length = Math.min(state.history.length, 30);
+        }
+
+        // Tài liệu mẫu ở ba trạng thái: chờ ký, đang luân chuyển, đã hoàn tất
+        async function seedDocs() {
+            const ago = (d, h = 0) => new Date(Date.now() - d * 864e5 - h * 36e5);
+            const [me, lead, boss] = SIGNERS();
+            drawStamp(lead.role); const leadImg = pad().toDataURL();
+            drawStamp(boss.role); const bossImg = pad().toDataURL();
+            drawSample(); state.mySig = pad().toDataURL();
+            drawImageToMyPad(state.mySig);
+
+            const done = newDoc('DeXuat_MuaSam_ThietBi.pdf', 'Đề xuất mua sắm thiết bị', state.user);
+            await createSignature(done, me, 'Tôi là tác giả tài liệu', 3, 6, 62, state.mySig, ago(5));
+            await createSignature(done, lead, 'Tôi đã kiểm tra tài liệu', 3, 58, 62, leadImg, ago(4));
+            await createSignature(done, boss, 'Tôi phê duyệt tài liệu', 3, 32, 80, bossImg, ago(3));
+            done.signerIdx = 3;
+
+            const flow = newDoc('BaoCao_TaiChinh_Quy3.pdf', 'Báo cáo tài chính quý III', 'Phạm Thu Hà');
+            await createSignature(flow, me, 'Tôi là tác giả tài liệu', 3, 6, 62, state.mySig, ago(1, 3));
+            flow.signerIdx = 1;
+
+            const todo = newDoc('HopDong_DichVu_2026.pdf', 'Hợp đồng dịch vụ', 'Trần Thị Bình');
+
+            addHistory('✍️', `${me.name} ký số (Rev. 1)`, done.name, ago(5));
+            addHistory('✍️', `${lead.name} ký số (Rev. 2)`, done.name, ago(4));
+            addHistory('✅', 'Hoàn tất quy trình ký: đủ 3 chữ ký hợp lệ', done.name, ago(3));
+            addHistory('🛡️', 'Kiểm tra toàn vẹn: hợp lệ', done.name, ago(2));
+            addHistory('✍️', `${me.name} ký số (Rev. 1)`, flow.name, ago(1, 3));
+            addHistory('📨', `Chuyển tiếp cho ${lead.name}`, flow.name, ago(1, 2));
+            addHistory('📥', `Nhận tài liệu cần ký từ ${todo.from}`, todo.name, ago(0, 1));
+
+            state.docs = [todo, flow, done];
+            state.doc = todo;
+        }
+
+        function docStatus(d) {
+            const signers = SIGNERS();
+            if (d.signerIdx >= signers.length) return { key: 'done', label: 'Hoàn tất', cls: 'green', action: 'Xem' };
+            if (d.signerIdx === 0) return d.signatures.length
+                ? { key: 'todo', label: 'Đã ký, chờ chuyển tiếp', cls: '', action: 'Chuyển tiếp' }
+                : { key: 'todo', label: 'Chờ bạn ký', cls: 'red', action: 'Ký ngay' };
+            return { key: 'flow', label: `Chờ ${signers[d.signerIdx].role} ký`, cls: 'amber', action: 'Theo dõi' };
+        }
+
+        function openDoc(id, view = 'sign') {
+            state.doc = state.docs.find(d => d.id === id);
+            const first = doc().signatures.at(-1);
+            state.page = first && view === 'sign' ? first.page : 1;
+            state.draft = { x: first && first.x < 40 ? 58 : 6, y: 62 };
+            loadSignerSig();
+            go(view);
+        }
+
+        // ============ Trang cá nhân ============
+        function renderProfile() {
+            const until = new Date(); until.setFullYear(until.getFullYear() + 2);
+            $('#pAvatar').textContent = initials(state.user);
+            $('#pAvatar').style.background = colorOf(state.user);
+            $('#pName').textContent = state.user;
+            $('#pWelcome').textContent = state.isNew
+                ? '🎉 Tài khoản vừa được tạo. Khóa và chứng thư số đã được khởi tạo tự động.'
+                : 'Chào mừng trở lại · Trung tâm quản lý danh tính và bảo mật';
+            $('#pFp').textContent = fmtFp(state.fingerprint).slice(0, 23) + '…';
+            $('#pPub').textContent = 'RSA · SHA‑256 ' + fmtFp(state.fingerprint).slice(0, 35) + '…';
+            $('#pSubject').textContent = `CN=${state.user}, O=LAN Chat`;
+            $('#pUntil').textContent = until.toLocaleDateString('vi-VN');
+            $('#pSigChip').className = 'chip ' + (state.mySig ? 'green' : 'amber');
+            $('#pSigChip').textContent = state.mySig ? '✓ Chữ ký đồ họa' : '! Chưa có chữ ký đồ họa';
+
+            // Hội thoại gần đây (đã giải mã)
+            $('#pChats').innerHTML = state.contacts.slice(0, 3).map(c => `
+                <div class="mini-conv" data-c="${c.id}">
+                    <div class="av-wrap">${avatarHtml(c.name)}<span class="dot ${c.status}"></span></div>
+                    <div class="meta"><b style="font-size:.84rem">${esc(c.name)}</b><p>🔓 ${esc(lastPreview(c.id))}</p></div>
+                    ${state.unread[c.id] ? `<span class="chip">${state.unread[c.id]}</span>` : ''}
+                </div>`).join('');
+            $$('.mini-conv').forEach(el => el.onclick = () => { go('chat'); openChat(+el.dataset.c); });
+            const online = state.contacts.filter(c => c.status === 'on');
+            $('#pAvs').innerHTML = state.contacts.slice(0, 5).map(c => avatarHtml(c.name)).join('');
+            $('#pOnline').textContent = `${online.length}/${state.contacts.length} online`;
+
+            // Kho tài liệu
+            const groups = { todo: 'Cần ký', flow: 'Đang luân chuyển', done: 'Đã hoàn tất' };
+            const counts = { todo: 0, flow: 0, done: 0 };
+            state.docs.forEach(d => counts[docStatus(d).key]++);
+            $('#docTabs').innerHTML = Object.entries(groups).map(([k, v]) =>
+                `<button data-f="${k}" class="${state.docFilter === k ? 'active' : ''}">${v} (${counts[k]})</button>`).join('');
+            $$('#docTabs button').forEach(b => b.onclick = () => { state.docFilter = b.dataset.f; renderProfile(); });
+            const list = state.docs.filter(d => docStatus(d).key === state.docFilter);
+            $('#docRows').innerHTML = list.length ? list.map(d => {
+                const st = docStatus(d);
+                const steps = SIGNERS().map((s, i) => `<span class="${i < d.signatures.length ? 'done' : i === d.signerIdx ? 'cur' : ''}">${i < d.signatures.length ? '✓ ' : ''}${s.role}</span>`).join('');
+                return `<div class="doc-row">
+                    <span class="pdf-ico">PDF</span>
+                    <div class="grow"><b>${esc(d.name)}</b><small>Từ: ${esc(d.from)} · ${d.signatures.length}/3 chữ ký${d.pdf ? ` · ${d.pdf.numPages} trang` : ''}</small><div class="flow mini">${steps}</div></div>
+                    <span class="chip ${st.cls}">${st.label}</span>
+                    <div style="display:flex;gap:.3rem">
+                        ${d.signatures.length ? `<button class="btn sm" data-verify="${d.id}" title="Kiểm tra chữ ký">🛡️</button>` : ''}
+                        <button class="btn sm ${st.key === 'todo' ? 'primary' : ''}" data-doc="${d.id}">${st.action}</button>
+                    </div>
+                </div>`;
+            }).join('') : `<div class="empty"><div>📭</div>Không có tài liệu trong mục này.</div>`;
+            $$('[data-doc]').forEach(b => b.onclick = () => openDoc(+b.dataset.doc));
+            $$('[data-verify]').forEach(b => b.onclick = () => openDoc(+b.dataset.verify, 'verify'));
+
+            $('#histList').innerHTML = state.history.slice(0, 7).map(h => `
+                <li><span class="h-ico">${h.icon}</span><div><b style="font-weight:600">${esc(h.text)}</b><small>${esc(h.doc)} · ${h.time}</small></div></li>`).join('');
+        }
+
+        $$('[data-go]').forEach(b => b.onclick = () => go(b.dataset.go));
+        $('#pScan').onclick = () => $('#scanBtn').click();
+        $('#verifyDoc').onchange = e => { state.doc = state.docs.find(d => d.id === +e.target.value); renderVerify(); };
+
+        $('#pdfUpload').onchange = async e => {
+            const f = e.target.files[0];
+            e.target.value = '';
+            if (!f) return;
+            let pdf = null;
+            if (window.pdfjsLib) {
+                try {
+                    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+                    pdf = await pdfjsLib.getDocument({ data: await f.arrayBuffer() }).promise;
+                } catch (err) { toast('Không đọc được file PDF này'); return; }
+            } else toast('Không tải được trình xem PDF (cần Internet), dùng trang minh họa');
+            const d = newDoc(f.name, f.name.replace(/\.pdf$/i, '').replace(/[_-]+/g, ' '), state.user, pdf);
+            state.docs.unshift(d);
+            state.docFilter = 'todo';
+            addHistory('⬆️', 'Tải lên tài liệu mới', d.name);
+            toast(`Đã tải lên ${f.name}`);
+            openDoc(d.id);
+        };
+
+        // --- Chữ ký đồ họa của tôi ---
+        let myMode = 'draw';
+        const myPad = () => $('#myPad');
+        function setupMyPad() {
+            const c = myPad(), ctx = c.getContext('2d');
+            let drawing = false;
+            const pt = e => {
+                const r = c.getBoundingClientRect();
+                return [(e.clientX - r.left) * c.width / r.width, (e.clientY - r.top) * c.height / r.height];
+            };
+            c.onpointerdown = e => {
+                if (myMode !== 'draw') return;
+                drawing = true;
+                c.setPointerCapture(e.pointerId);
+                ctx.beginPath();
+                ctx.moveTo(...pt(e));
+            };
+            c.onpointermove = e => {
+                if (!drawing) return;
+                ctx.lineWidth = 4; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = '#1d3fa8';
+                ctx.lineTo(...pt(e));
+                ctx.stroke();
+            };
+            c.onpointerup = c.onpointercancel = () => drawing = false;
+        }
+
+        function drawImageToMyPad(src, contain) {
+            const img = new Image();
+            img.onload = () => {
+                const c = myPad(), ctx = c.getContext('2d');
+                ctx.clearRect(0, 0, c.width, c.height);
+                const s = contain ? Math.min(c.width / img.width, c.height / img.height) : 1;
+                const w = contain ? img.width * s : c.width, h = contain ? img.height * s : c.height;
+                ctx.drawImage(img, (c.width - w) / 2, (c.height - h) / 2, w, h);
+            };
+            img.src = src;
+        }
+
+        $$('#myTabs button').forEach(b => b.onclick = () => {
+            $$('#myTabs button').forEach(x => x.classList.remove('active'));
+            b.classList.add('active');
+            myMode = b.dataset.my;
+            $('#myUploadLbl').classList.toggle('hidden', myMode !== 'upload');
+        });
+        $('#myClear').onclick = () => { const c = myPad(); c.getContext('2d').clearRect(0, 0, c.width, c.height); };
+        $('#myUpload').onchange = e => {
+            const f = e.target.files[0];
+            if (f) drawImageToMyPad(URL.createObjectURL(f), true);
+        };
+        $('#mySave').onclick = () => {
+            state.mySig = myPad().toDataURL('image/png');
+            addHistory('🖊️', 'Cập nhật chữ ký đồ họa', 'Hồ sơ cá nhân');
+            if (doc().signerIdx === 0) loadSignerSig();
+            renderProfile();
+            toast('Đã lưu chữ ký đồ họa');
+        };
+
+        // ============ Tài khoản ============
+        function renderAccount() {
+            const today = new Date(), until = new Date(today);
+            until.setFullYear(today.getFullYear() + 2);
+            $('#accName').textContent = state.user;
+            $('#accHash').textContent = state.passHash;
+            $('#accTime').textContent = today.toLocaleString('vi-VN');
+            $('#keyAlg').textContent = 'RSA‑OAEP 2048 bit (bản thiết kế) · ứng dụng thật dùng RSA‑4096';
+            $('#keyFp').textContent = fmtFp(state.fingerprint);
+            $('#pemBox').value = pemText;
+            $('#certInfo').innerHTML = `
+                <dt>Chủ thể</dt><dd>CN=${esc(state.user)}, O=LAN Chat, C=VN</dd>
+                <dt>Tổ chức cấp</dt><dd>CN=LAN Chat Root CA</dd>
+                <dt>Số serial</dt><dd class="mono">${state.fingerprint.slice(0, 16).toUpperCase()}</dd>
+                <dt>Hiệu lực từ</dt><dd>${today.toLocaleDateString('vi-VN')}</dd>
+                <dt>Hiệu lực đến</dt><dd>${until.toLocaleDateString('vi-VN')}</dd>
+                <dt>Mục đích</dt><dd>Chữ ký số, chống chối bỏ, mã hóa khóa</dd>`;
+        }
+        $('#copyPem').onclick = async () => {
+            try { await navigator.clipboard.writeText(pemText); toast('Đã sao chép khóa công khai'); }
+            catch (e) { $('#pemBox').select(); toast('Nhấn Ctrl+C để sao chép'); }
+        };
+        $('#dlPem').onclick = () => {
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(new Blob([pemText], { type: 'application/x-pem-file' }));
+            a.download = 'public_key.pem';
+            a.click();
+        };
+    </script>
+</body>
+
+</html>

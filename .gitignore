@@ -1,0 +1,13 @@
+# Khóa bí mật, tài khoản và tin nhắn của máy chủ
+data/
+*.pem
+*.key
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Công cụ
+.vscode/
