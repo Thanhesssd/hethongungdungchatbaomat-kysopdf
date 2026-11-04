@@ -21,11 +21,15 @@ DATA_DIR = os.environ.get("LANCHAT_DATA") or os.path.join(BASE_DIR, "data")
 DB_PATH = os.path.join(DATA_DIR, "server.json")
 CERT_PATH = os.path.join(DATA_DIR, "cert.pem")
 KEY_PATH = os.path.join(DATA_DIR, "key.pem")
+CA_CERT_PATH = os.path.join(DATA_DIR, "ca.pem")
+CA_KEY_PATH = os.path.join(DATA_DIR, "ca-key.pem")
 PORT = int(os.environ.get("LANCHAT_PORT", 8443))
+LOCAL_PORT = int(os.environ.get("LANCHAT_LOCAL_PORT", 8000))
 ONLINE_SECONDS = 30
 MAX_BODY = 1024 * 1024
 MAX_GROUP = 50
 MAX_FAILS = 5
+MAX_SIGNUPS_PER_HOUR = 10
 LOCK_SECONDS = 60
 SESSION_SECONDS = 30 * 24 * 3600
 STATIC_TYPES = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8"}
@@ -44,6 +48,7 @@ class Store:
         self.requests = set()
         self.sessions = {}
         self.fails = {}
+        self.signups = {}
         self.last_seen = {}
         if os.path.exists(DB_PATH):
             with open(DB_PATH, encoding="utf-8") as f:
@@ -127,6 +132,11 @@ class Handler(BaseHTTPRequestHandler):
             raise ValueError("Dữ liệu quá lớn")
         return json.loads(self.rfile.read(length) or b"{}")
 
+    def client_ip(self):
+        # Qua đường hầm Cloudflare mọi kết nối đều đến từ 127.0.0.1, địa chỉ thật nằm trong header
+        ip = self.client_address[0]
+        return self.headers.get("CF-Connecting-IP", ip) if ip == "127.0.0.1" else ip
+
     def current_user(self):
         key = hashlib.sha256(self.headers.get("X-Token", "").encode()).hexdigest()
         session = self.store.sessions.get(key)
@@ -135,12 +145,37 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         url = urlparse(self.path)
         if url.path == "/api/health":
-            return self.send_json({"ok": True, "ip": primary_ip()})
+            return self.send_json({"ok": True, "ip": primary_ip(), "port": PORT})
+        if url.path == "/ca.crt":
+            return self.serve_ca()
+        if url.path == "/api/ca":
+            return self.handle_ca()
         if url.path == "/api/sync":
             return self.handle_sync(parse_qs(url.query))
         if url.path == "/api/users":
             return self.handle_users(parse_qs(url.query))
         self.serve_static(unquote(url.path))
+
+    def handle_ca(self):
+        from cryptography import x509
+        from cryptography.hazmat.primitives import hashes
+
+        with open(CA_CERT_PATH, "rb") as f:
+            cert = x509.load_pem_x509_certificate(f.read())
+        self.send_json({"subject": cert.subject.rfc4514_string(), "sha256": cert.fingerprint(hashes.SHA256()).hex().upper(),
+                        "sha1": cert.fingerprint(hashes.SHA1()).hex().upper(), "until": cert.not_valid_after_utc.strftime("%d/%m/%Y"),
+                        "ip": primary_ip(), "port": PORT})
+
+    def serve_ca(self):
+        # Chỉ là chứng chỉ công khai, để máy khác cài một lần và không còn cảnh báo
+        with open(CA_CERT_PATH, "rb") as f:
+            body = f.read()
+        self.send_response(200)
+        self.send_header("Content-Type", "application/x-x509-ca-cert")
+        self.send_header("Content-Disposition", 'attachment; filename="LAN-Chat-CA.crt"')
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
 
     def serve_static(self, path):
         # Chỉ phục vụ file giao diện ở thư mục gốc, không lộ mã Python hay thư mục data
@@ -188,6 +223,11 @@ class Handler(BaseHTTPRequestHandler):
         if not re.fullmatch(r"[0-9a-f]{64}", body["passHash"]):
             return self.send_json({"error": "Mật khẩu không hợp lệ"}, 400)
         with self.store.cond:
+            ip, now = self.client_ip(), time.time()
+            recent = [t for t in self.store.signups.get(ip, []) if now - t < 3600]
+            if len(recent) >= MAX_SIGNUPS_PER_HOUR:
+                return self.send_json({"error": "Địa chỉ này đã tạo nhiều tài khoản. Hãy thử lại sau"}, 429)
+            self.store.signups[ip] = recent + [now]
             if self.store.find_user(name):
                 return self.send_json({"error": "Tên này đã có tài khoản. Hãy đăng nhập hoặc chọn tên khác"}, 409)
             salt = secrets.token_hex(16)
@@ -200,7 +240,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def handle_login(self, body):
         store = self.store
-        key = (clean_name(body["name"]).lower(), self.client_address[0])
+        key = (clean_name(body["name"]).lower(), self.client_ip())
         with store.cond:
             user = store.find_user(body["name"])
             count, until = store.fails.get(key, (0, 0))
@@ -410,7 +450,7 @@ def primary_ip():
 
 
 def local_ips():
-    ips = {"127.0.0.1"}
+    ips = {"127.0.0.1", primary_ip()}
     try:
         ips.update(socket.gethostbyname_ex(socket.gethostname())[2])
     except OSError:
@@ -419,40 +459,89 @@ def local_ips():
 
 
 def ensure_certificate():
-    """Trình duyệt chỉ bật mật mã (crypto.subtle) trên HTTPS khi truy cập qua IP, nên tự tạo chứng thư cho mạng LAN."""
-    if os.path.exists(CERT_PATH) and os.path.exists(KEY_PATH):
-        return
+    """Trình duyệt chỉ bật mật mã (crypto.subtle) trên HTTPS khi truy cập qua IP.
+    Chứng chỉ gốc riêng của máy chủ chỉ có hiệu lực trong mạng nội bộ, cài một lần trên mỗi máy.
+    Chứng chỉ máy chủ được cấp lại khi địa chỉ IP thay đổi."""
     from cryptography import x509
     from cryptography.hazmat.primitives import hashes, serialization
     from cryptography.hazmat.primitives.asymmetric import rsa
-    from cryptography.x509.oid import NameOID
+    from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
     os.makedirs(DATA_DIR, exist_ok=True)
-    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "LAN Chat Server")])
     now = datetime.datetime.now(datetime.timezone.utc)
-    alt_names = [x509.DNSName("localhost")] + [x509.IPAddress(ipaddress.ip_address(ip)) for ip in local_ips()]
-    cert = (x509.CertificateBuilder().subject_name(name).issuer_name(name).public_key(key.public_key())
+    day = datetime.timedelta(days=1)
+    host = socket.gethostname().lower()
+    ips = local_ips()
+
+    def write_key(path, key):
+        with open(path, "wb") as f:
+            f.write(key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()))
+
+    if os.path.exists(CA_CERT_PATH) and os.path.exists(CA_KEY_PATH):
+        with open(CA_CERT_PATH, "rb") as f:
+            ca_cert = x509.load_pem_x509_certificate(f.read())
+        with open(CA_KEY_PATH, "rb") as f:
+            ca_key = serialization.load_pem_private_key(f.read(), password=None)
+    else:
+        ca_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        ca_name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, f"LAN Chat Local CA {secrets.token_hex(3)}")])
+        # Giới hạn phạm vi: nếu khóa bị lộ cũng không giả mạo được website trên Internet
+        permitted = [x509.DNSName("localhost"), x509.DNSName(host)] + [
+            x509.IPAddress(ipaddress.ip_network(n)) for n in ("127.0.0.0/8", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")]
+        ca_cert = (x509.CertificateBuilder().subject_name(ca_name).issuer_name(ca_name).public_key(ca_key.public_key())
+                   .serial_number(x509.random_serial_number())
+                   .not_valid_before(now - day).not_valid_after(now + 3650 * day)
+                   .add_extension(x509.BasicConstraints(ca=True, path_length=0), critical=True)
+                   .add_extension(x509.KeyUsage(False, False, False, False, False, True, True, False, False), critical=True)
+                   .add_extension(x509.NameConstraints(permitted, None), critical=True)
+                   .add_extension(x509.SubjectKeyIdentifier.from_public_key(ca_key.public_key()), critical=False)
+                   .sign(ca_key, hashes.SHA256()))
+        write_key(CA_KEY_PATH, ca_key)
+        with open(CA_CERT_PATH, "wb") as f:
+            f.write(ca_cert.public_bytes(serialization.Encoding.PEM))
+
+    if os.path.exists(CERT_PATH) and os.path.exists(KEY_PATH):
+        with open(CERT_PATH, "rb") as f:
+            cert = x509.load_pem_x509_certificate(f.read())
+        names = cert.extensions.get_extension_for_class(x509.SubjectAlternativeName).value
+        covered = {str(ip) for ip in names.get_values_for_type(x509.IPAddress)}
+        if cert.issuer == ca_cert.subject and covered >= set(ips) and cert.not_valid_after_utc > now + 30 * day:
+            return
+
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    alt_names = [x509.DNSName("localhost"), x509.DNSName(host)] + [x509.IPAddress(ipaddress.ip_address(ip)) for ip in ips]
+    cert = (x509.CertificateBuilder()
+            .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "LAN Chat Server")]))
+            .issuer_name(ca_cert.subject).public_key(key.public_key())
             .serial_number(x509.random_serial_number())
-            .not_valid_before(now - datetime.timedelta(days=1)).not_valid_after(now + datetime.timedelta(days=825))
+            .not_valid_before(now - day).not_valid_after(now + 397 * day)
+            .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
+            .add_extension(x509.KeyUsage(True, False, True, False, False, False, False, False, False), critical=True)
+            .add_extension(x509.ExtendedKeyUsage([ExtendedKeyUsageOID.SERVER_AUTH]), critical=False)
             .add_extension(x509.SubjectAlternativeName(alt_names), critical=False)
-            .sign(key, hashes.SHA256()))
+            .add_extension(x509.SubjectKeyIdentifier.from_public_key(key.public_key()), critical=False)
+            .add_extension(x509.AuthorityKeyIdentifier.from_issuer_public_key(ca_key.public_key()), critical=False)
+            .sign(ca_key, hashes.SHA256()))
+    write_key(KEY_PATH, key)
     with open(CERT_PATH, "wb") as f:
         f.write(cert.public_bytes(serialization.Encoding.PEM))
-    with open(KEY_PATH, "wb") as f:
-        f.write(key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()))
 
 
 def main():
     ensure_certificate()
     Handler.store = Store()
+    # Riêng máy này: trình duyệt tin localhost nên không cần chứng chỉ, và cổng này không mở ra mạng LAN
+    local = Server(("127.0.0.1", LOCAL_PORT), Handler)
+    threading.Thread(target=local.serve_forever, daemon=True).start()
     server = Server(("0.0.0.0", PORT), Handler)
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.load_cert_chain(CERT_PATH, KEY_PATH)
     server.socket = context.wrap_socket(server.socket, server_side=True)
     print("Máy chủ LAN Chat đang chạy:", flush=True)
+    print(f"  Trên máy này: http://localhost:{LOCAL_PORT}/", flush=True)
     for ip in local_ips():
         print(f"  https://{ip}:{PORT}/", flush=True)
+    print(f"Cài chứng chỉ gốc một lần trên mỗi máy: https://{primary_ip()}:{PORT}/ca.crt", flush=True)
     server.serve_forever()
 
 

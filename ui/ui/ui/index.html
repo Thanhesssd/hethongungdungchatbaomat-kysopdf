@@ -35,6 +35,7 @@
                 <li><a href="#signing">Ký số PDF</a></li>
                 <li><a href="#workflow">Ký nối tiếp</a></li>
                 <li><a href="#security">Bảo mật</a></li>
+                <li><a href="#root-ca">Root CA</a></li>
                 <li><a href="#info">Thông tin</a></li>
                 <li><a href="#contact">Liên hệ</a></li>
                 <li><button class="theme-btn" id="themeBtn" aria-label="Đổi giao diện sáng/tối">◐</button></li>
@@ -324,6 +325,21 @@
                     <h4>Ký số</h4>
                     <p>Băm tài liệu bằng SHA‑256, ký bằng khóa riêng và nhúng chữ ký CMS vào PDF.</p>
                 </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Chứng thư gốc -->
+    <section id="root-ca" class="section alt">
+        <div class="container">
+            <div class="section-header reveal">
+                <span class="eyebrow">Tin cậy trong mạng nội bộ</span>
+                <h2>Thêm chứng thư gốc (Root CA)</h2>
+                <p>Khi Root CA được thêm vào kho tin cậy, hệ điều hành và trình duyệt xác minh được kết nối HTTPS trong mạng nội bộ. Các chứng chỉ do CA đó ký được tin cậy, cảnh báo NET::ERR_CERT_AUTHORITY_INVALID biến mất, và trình duyệt có thể phát hiện máy khác giả mạo máy chủ.</p>
+            </div>
+            <div class="hero-buttons" style="justify-content:center">
+                <a href="/#root-ca" class="btn primary">Xem hướng dẫn cài đặt</a>
+                <a href="/ca.crt" class="btn secondary">Tải chứng thư gốc</a>
             </div>
         </div>
     </section>

@@ -172,6 +172,13 @@
         @keyframes blink { 0%, 80%, 100% { opacity: .25; } 40% { opacity: 1; } }
         .day { align-self: center; font-size: .72rem; color: var(--muted); }
 
+        .login-card.result > :not(.reg-result) { display: none; }
+        .reg-result { text-align: center; padding: 1.4rem 1.2rem; border-radius: 16px; border: 1px solid var(--border); background: var(--panel); }
+        .reg-result .tick { width: 56px; height: 56px; font-size: 1.6rem; margin: 0 auto .8rem; }
+        .reg-result h2 { font-size: 1.35rem; margin-bottom: .4rem; }
+        .reg-result p { color: var(--muted); font-size: .88rem; margin-bottom: .4rem; }
+        .reg-result .why { color: var(--text); font-weight: 600; }
+        .reg-result .btn { margin-top: .8rem; }
         .form-err { color: var(--red); font-size: .82rem; font-weight: 600; margin-bottom: .7rem; }
         .field small { color: var(--muted); font-size: .75rem; }
         .link-btn { border: 0; background: none; color: var(--primary); font-weight: 600; padding: 0; }
@@ -185,6 +192,12 @@
         .scan-video { width: 100%; max-height: 300px; border-radius: 12px; background: var(--side); display: block; }
         .qr-img { width: 240px; max-width: 100%; display: block; margin: .3rem auto; border-radius: 10px; image-rendering: pixelated; }
         .check-row { display: flex; gap: .55rem; align-items: center; padding: .3rem 0; }
+
+        .ca-status { display: flex; gap: .7rem; align-items: center; padding: .7rem .8rem; border-radius: 10px; background: var(--panel-2); border: 1px solid var(--border); font-size: .84rem; }
+        .ca-status.good { background: var(--green-soft); border-color: transparent; }
+        .ca-status.bad { background: var(--red-soft); border-color: transparent; }
+        .ca-steps { padding-left: 1.2rem; display: grid; gap: .3rem; font-size: .85rem; }
+        .ca-fp { font-size: .7rem; word-break: break-all; }
 
         /* ===== Danh bạ ===== */
         .toolbar { display: flex; gap: .5rem; flex-wrap: wrap; margin-bottom: 1rem; align-items: center; }
@@ -396,7 +409,7 @@
                     <div class="field">
                         <label for="fPass">Mật khẩu</label>
                         <input class="input" id="fPass" type="password" value="matkhau123" required>
-                        <small class="hidden" id="passHint">Ít nhất 8 ký tự. Không thể lấy lại nếu quên, vì khóa riêng được mã hóa bằng mật khẩu này.</small>
+                        <small class="hidden" id="passHint">Ít nhất 4 ký tự, đặt sao cho dễ nhớ. Không thể lấy lại nếu quên, vì khóa riêng được mã hóa bằng mật khẩu này.</small>
                     </div>
                     <div class="field hidden" id="pass2Field">
                         <label for="fPass2">Nhập lại mật khẩu</label>
@@ -411,6 +424,8 @@
                 </form>
                 <p class="muted" style="font-size:.84rem;margin-top:.8rem"><span id="switchText">Chưa có tài khoản?</span> <button type="button" class="link-btn" id="switchBtn">Đăng ký ngay</button></p>
                 <p class="muted" id="serverNote" style="font-size:.78rem;margin-top:.8rem">Đang dùng chế độ minh họa trên trình duyệt này. Chạy server.py để nhiều người dùng chung.</p>
+                <button type="button" class="link-btn hidden" id="caLink" style="font-size:.84rem">🛡️ Cài chứng thư gốc (Root CA) để hết cảnh báo Chrome</button>
+                <div class="reg-result hidden" id="regResult" role="status" aria-live="polite"></div>
                 <div class="steps hidden" id="steps">
                     <div><i>1</i>Băm mật khẩu SHA‑256</div>
                     <div><i>2</i>Đối chiếu mã băm</div>
@@ -693,6 +708,10 @@
                             <dl class="kv" id="certInfo"></dl>
                         </div>
                     </div>
+                    <div class="card hidden" id="caCard" style="grid-column:1/-1">
+                        <div class="card-h"><h3>Chứng thư gốc (Root CA)</h3><button class="btn sm primary" id="caOpen">🛡️ Xem và cài đặt</button></div>
+                        <div class="card-b"><p class="muted">Cài một lần trên mỗi máy để trình duyệt tin kết nối HTTPS trong mạng nội bộ và không còn cảnh báo NET::ERR_CERT_AUTHORITY_INVALID.</p></div>
+                    </div>
                     <div class="card" style="grid-column:1/-1">
                         <div class="card-h"><h3>Cặp khóa của tài khoản</h3>
                             <div style="display:flex;gap:.4rem">
@@ -800,14 +819,48 @@
         $('#fPass').addEventListener('input', updateHash);
         updateHash();
 
+        // Khung kết quả đăng ký: thành công thì vào app, thất bại thì nói rõ lý do và cách sửa
+        function regResult(ok, detail, retryField) {
+            const box = $('#regResult');
+            box.innerHTML = ok
+                ? `<span class="tick">✓</span><h2>Đăng ký thành công</h2>
+                   <p>Tài khoản <b class="why">${esc(state.user)}</b> đã được tạo cùng cặp khóa RSA và chứng thư số riêng.</p>
+                   <p class="mono" style="font-size:.74rem">Vân tay khóa: ${fmtFp(state.fingerprint)}</p>
+                   <p>${detail}</p>
+                   <button class="btn primary block" id="regGo" type="button">Vào ứng dụng</button>`
+                : `<span class="tick bad">✕</span><h2>${mode === 'register' ? 'Đăng ký' : 'Đăng nhập'} thất bại</h2>
+                   <p class="why">${esc(detail)}</p>
+                   <p>Thông tin bạn đã nhập vẫn được giữ lại.</p>
+                   <button class="btn primary block" id="regRetry" type="button">Thử lại</button>`;
+            box.classList.remove('hidden');
+            $('.login-card').classList.add('result');
+            $('#steps').classList.add('hidden');
+            if (ok) {
+                $('#regGo').focus();
+                return new Promise(resolve => $('#regGo').onclick = resolve);
+            }
+            $('#regRetry').focus();
+            $('#regRetry').onclick = () => {
+                $('.login-card').classList.remove('result');
+                box.classList.add('hidden');
+                $('#loginBtn').disabled = false;
+                $(retryField || '#fName').focus();
+            };
+        }
+
+        function regError(err) {
+            if (err instanceof TypeError) return 'Không kết nối được máy chủ. Hãy kiểm tra máy chủ đang chạy rồi thử lại.';
+            return err.message || 'Có lỗi không mong muốn. Hãy thử lại.';
+        }
+
         $('#loginForm').onsubmit = async e => {
             e.preventDefault();
             const name = $('#fName').value.trim().replace(/\s+/g, ' ').normalize('NFC');
             if (!name) return;
             if (mode === 'register') {
-                if (name.length < 2 || name.length > 60) return formErr('Tên tài khoản cần từ 2 đến 60 ký tự');
-                if ($('#fPass').value.length < 8) return formErr('Mật khẩu cần ít nhất 8 ký tự');
-                if ($('#fPass').value !== $('#fPass2').value) return formErr('Hai lần nhập mật khẩu chưa giống nhau');
+                if (name.length < 2 || name.length > 60) return regResult(false, 'Tên tài khoản cần từ 2 đến 60 ký tự.', '#fName');
+                if ($('#fPass').value.length < 4) return regResult(false, 'Mật khẩu cần ít nhất 4 ký tự.', '#fPass');
+                if ($('#fPass').value !== $('#fPass2').value) return regResult(false, 'Hai lần nhập mật khẩu chưa giống nhau.', '#fPass2');
             }
             formErr('');
             $('#loginBtn').disabled = true;
@@ -833,13 +886,16 @@
             if (state.server) {
                 try { await serverAuth(name); }
                 catch (err) {
-                    formErr(err.name === 'OperationError' ? 'Không mở được khóa riêng. Hãy kiểm tra lại mật khẩu' : err.message);
-                    $('#loginBtn').disabled = false;
-                    $('#steps').classList.add('hidden');
+                    const reason = err.name === 'OperationError' ? 'Không mở được khóa riêng. Hãy kiểm tra lại mật khẩu.' : regError(err);
+                    regResult(false, reason, /đã có tài khoản/.test(err.message) ? '#fName' : '#fPass');
                     return;
                 }
             }
+            if (mode === 'register') await regResult(true, state.server
+                ? 'Bạn có thể đăng nhập bằng tài khoản này trên mọi máy trong mạng.'
+                : 'Đây là chế độ minh họa: tài khoản chỉ có trên trình duyệt này.');
             await enterApp();
+            if (mode === 'login') toast(`✅ Đăng nhập thành công. Chào mừng ${state.user}!`);
             if (state.server) {
                 enterServerUi();
                 renderContacts();
@@ -891,10 +947,22 @@
             go('profile');
         }
 
-        $('#logoutBtn').onclick = async () => {
-            if (state.token) await api('logout', {}).catch(() => { });
-            location.reload();
+        $('#logoutBtn').onclick = () => {
+            modal('Đăng xuất', `<p>Đăng xuất khỏi tài khoản <b>${esc(state.user)}</b>? Lịch sử trò chuyện vẫn được giữ lại cho lần đăng nhập sau.</p>`,
+                `<button class="btn" data-close>Ở lại</button><button class="btn danger" id="confirmLogout">Đăng xuất</button>`);
+            $('#confirmLogout').onclick = async () => {
+                if (state.token) await api('logout', {}).catch(() => { });
+                try { sessionStorage.setItem('lanchat-logout', state.user); } catch (e) { }
+                location.reload();
+            };
         };
+        try {
+            const who = sessionStorage.getItem('lanchat-logout');
+            if (who) {
+                sessionStorage.removeItem('lanchat-logout');
+                setTimeout(() => toast(`👋 Đã đăng xuất khỏi tài khoản ${who}`), 300);
+            }
+        } catch (e) { }
 
         // ============ Điều hướng ============
         const TITLES = { profile: 'Trang cá nhân', chat: 'Tin nhắn', contacts: 'Danh bạ', sign: 'Ký số PDF', verify: 'Kiểm tra chữ ký', account: 'Tài khoản & khóa' };
@@ -1108,6 +1176,9 @@
                 const health = await api('health');
                 state.server = true;
                 state.lanIp = health.ip;
+                state.lanPort = health.port;
+                $('#caLink').classList.remove('hidden');
+                if (location.hash === '#root-ca') caModal();
                 $('#fName').value = '';
                 $('#fPass').value = '';
                 updateHash();
@@ -1325,7 +1396,7 @@
         // Mã là một đường dẫn: quét bằng app hoặc camera điện thoại đều mở đúng chỗ kết bạn
         function friendLink() {
             const local = ['localhost', '127.0.0.1'].includes(location.hostname);
-            const host = local ? `${state.lanIp}:${location.port}` : location.host;
+            const host = local ? `${state.lanIp}:${state.lanPort}` : location.host;
             return `https://${host}/#add=${state.code}`;
         }
 
@@ -1437,6 +1508,58 @@
             }
         }
 
+        // ============ Chứng thư gốc (Root CA) ============
+        // Trang web không thể tự thêm chứng thư vào kho tin cậy, nên hướng dẫn người dùng tự cài và tự xác nhận
+        const CA_GUIDES = {
+            Windows: ['Bấm "Tải chứng thư gốc", mở file LAN-Chat-CA.crt.', 'Chọn Install Certificate, chọn Current User.', 'Chọn Place all certificates in the following store, rồi Browse, chọn Trusted Root Certification Authorities.', 'Bấm Finish, chọn Yes ở hộp thoại Security Warning.', 'Tắt hẳn Chrome rồi mở lại.'],
+            macOS: ['Tải chứng thư gốc và mở bằng Keychain Access.', 'Thêm vào keychain login.', 'Mở chứng thư vừa thêm, ở mục Trust chọn Always Trust.', 'Tắt hẳn trình duyệt rồi mở lại.'],
+            Android: ['Tải chứng thư gốc về máy.', 'Vào Cài đặt, Bảo mật, Mã hóa và thông tin xác thực, Cài chứng chỉ, Chứng chỉ CA.', 'Chọn file LAN-Chat-CA.crt và xác nhận.', 'Tên mục có thể khác đôi chút tùy hãng điện thoại.'],
+            iPhone: ['Mở link tải bằng Safari và cho phép tải hồ sơ.', 'Vào Cài đặt, Đã tải về hồ sơ, Cài đặt.', 'Vào Cài đặt chung, Giới thiệu, Cài đặt tin cậy chứng nhận.', 'Bật tin cậy cho chứng thư LAN Chat Local CA.'],
+        };
+
+        async function caTrusted(ca) {
+            // Trang https có thể đã được bỏ qua cảnh báo bằng tay nên không kết luận được
+            if (location.protocol === 'https:') return null;
+            try {
+                await fetch(`https://${ca.ip}:${ca.port}/api/health`, { mode: 'no-cors', cache: 'no-store' });
+                return true;
+            } catch (e) { return false; }
+        }
+
+        async function caModal() {
+            let ca;
+            try { ca = await api('ca'); } catch (e) { toast(e.message); return; }
+            const guide = navigator.platform.startsWith('Mac') ? 'macOS' : /Android/.test(navigator.userAgent) ? 'Android' : /iPhone|iPad/.test(navigator.userAgent) ? 'iPhone' : 'Windows';
+            modal('Chứng thư gốc (Root CA)', `
+                <p style="font-size:.85rem">Khi Root CA được thêm vào kho tin cậy, máy này sẽ tin các chứng chỉ HTTPS do nó ký. Trình duyệt hết cảnh báo NET::ERR_CERT_AUTHORITY_INVALID và có thể phát hiện máy khác giả mạo máy chủ này.</p>
+                <div class="ca-status" id="caStatus" style="margin:.6rem 0">Đang kiểm tra…</div>
+                <a class="btn primary block" href="ca.crt" download="LAN-Chat-CA.crt">⬇ Tải chứng thư gốc</a>
+                <div class="tabs" id="caTabs" style="margin-top:.8rem">${Object.keys(CA_GUIDES).map(k => `<button type="button" data-os="${k}">${k}</button>`).join('')}</div>
+                <ol class="ca-steps" id="caSteps"></ol>
+                <dl class="kv" style="margin-top:.8rem">
+                    <dt>Tên</dt><dd>${esc(ca.subject)}</dd>
+                    <dt>Hiệu lực đến</dt><dd>${esc(ca.until)}</dd>
+                    <dt>SHA‑1 (Thumbprint)</dt><dd class="mono ca-fp">${esc(ca.sha1)}</dd>
+                    <dt>SHA‑256</dt><dd class="mono ca-fp">${esc(ca.sha256)}</dd>
+                </dl>
+                <p class="muted" style="font-size:.76rem;margin-top:.6rem">Trước khi bấm Yes, hãy đối chiếu dấu vân tay với máy chủ. Chứng thư này chỉ có hiệu lực cho địa chỉ trong mạng nội bộ. Chỉ cài khi bạn tin người quản lý máy chủ.</p>`);
+            const pickOs = os => {
+                $$('#caTabs button').forEach(b => b.classList.toggle('active', b.dataset.os === os));
+                $('#caSteps').innerHTML = CA_GUIDES[os].map(s => `<li>${esc(s)}</li>`).join('');
+            };
+            $$('#caTabs button').forEach(b => b.onclick = () => pickOs(b.dataset.os));
+            pickOs(guide);
+            const trusted = await caTrusted(ca);
+            const box = $('#caStatus');
+            if (!box) return;
+            box.className = 'ca-status' + (trusted === true ? ' good' : trusted === false ? ' bad' : '');
+            box.textContent = trusted === true ? '✅ Trình duyệt này đã tin chứng thư gốc.'
+                : trusted === false ? '⚠ Trình duyệt này chưa tin chứng thư gốc. Hãy cài theo hướng dẫn bên dưới.'
+                    : 'Nếu thanh địa chỉ vẫn báo "Không bảo mật" thì trình duyệt này chưa tin chứng thư gốc.';
+        }
+        $('#caLink').onclick = caModal;
+        $('#caOpen').onclick = caModal;
+
         // Giao diện thật khi đăng nhập qua máy chủ LAN
         function enterServerUi() {
             for (const c of state.contacts) if (!c.real && !c.group) c.role += ' · trả lời tự động';
@@ -1447,6 +1570,7 @@
             $('#pPrivNote').textContent = note;
             $('#aPrivNote').textContent = '🔒 ' + note;
             $('#socialPanel').classList.remove('hidden');
+            $('#caCard').classList.remove('hidden');
             $('#syncBtn').classList.remove('hidden');
             $('#scanBtn').onclick = scanModal;
             $('#sTotalLabel').textContent = 'Bạn bè';
