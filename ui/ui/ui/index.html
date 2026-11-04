@@ -35,6 +35,7 @@
                 <li><a href="#signing">Ký số PDF</a></li>
                 <li><a href="#workflow">Ký nối tiếp</a></li>
                 <li><a href="#security">Bảo mật</a></li>
+                <li><a href="#devices">Quét QR & thiết bị</a></li>
                 <li><a href="#root-ca">Root CA</a></li>
                 <li><a href="#info">Thông tin</a></li>
                 <li><a href="#contact">Liên hệ</a></li>
@@ -325,6 +326,49 @@
                     <h4>Ký số</h4>
                     <p>Băm tài liệu bằng SHA‑256, ký bằng khóa riêng và nhúng chữ ký CMS vào PDF.</p>
                 </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Quét mã QR và tương tác thiết bị -->
+    <section id="devices" class="section">
+        <div class="container">
+            <div class="section-header">
+                <span class="eyebrow">Đa nền tảng</span>
+                <h2>Quét mã QR và tương tác thiết bị</h2>
+                <p>Kết nối nhanh máy tính với điện thoại trong mạng LAN, không cần gõ địa chỉ IP hay mã PIN.</p>
+            </div>
+            <div class="features-grid">
+                <article class="feature-card reveal">
+                    <div class="feature-icon">📷</div>
+                    <h3>Cấp quyền camera</h3>
+                    <p>Ứng dụng giải thích lý do trước khi xin quyền camera. Khi người dùng đồng ý, khung ngắm xuất hiện và nhận diện mã QR theo thời gian thực bằng MediaDevices của trình duyệt. Bị từ chối thì có hướng dẫn mở lại quyền, hoặc quét từ ảnh chụp.</p>
+                    <ul class="tags">
+                        <li>MediaDevices</li>
+                        <li>Chọn camera</li>
+                        <li>Quét từ ảnh</li>
+                    </ul>
+                </article>
+                <article class="feature-card reveal">
+                    <div class="feature-icon">📱</div>
+                    <h3>Kết nối điện thoại bằng QR</h3>
+                    <p>Máy tính tạo mã QR chứa địa chỉ mạng và mã xác thực dùng một lần, hết hạn sau 2 phút. Điện thoại quét bằng camera là tự đăng nhập vào cùng tài khoản; khóa riêng được chuyển ở dạng mã hóa, máy chủ không đọc được.</p>
+                    <ul class="tags">
+                        <li>Token dùng một lần</li>
+                        <li>Hết hạn 2 phút</li>
+                        <li>Mã hóa đầu cuối</li>
+                    </ul>
+                </article>
+                <article class="feature-card reveal">
+                    <div class="feature-icon">🧾</div>
+                    <h3>Chụp ảnh văn bản thành PDF</h3>
+                    <p>Chụp giấy tờ, hóa đơn bằng camera của thiết bị, ứng dụng tự làm rõ chữ và ghép các trang thành file PDF. Tài liệu số hóa được đưa thẳng vào luồng ký số ngay trên điện thoại, không cần thiết bị trung gian.</p>
+                    <ul class="tags">
+                        <li>Nhiều trang</li>
+                        <li>Làm rõ chữ</li>
+                        <li>Ký số ngay</li>
+                    </ul>
+                </article>
             </div>
         </div>
     </section>

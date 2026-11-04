@@ -30,6 +30,7 @@ MAX_BODY = 1024 * 1024
 MAX_GROUP = 50
 MAX_FAILS = 5
 MAX_SIGNUPS_PER_HOUR = 10
+PAIR_SECONDS = 120
 LOCK_SECONDS = 60
 SESSION_SECONDS = 30 * 24 * 3600
 STATIC_TYPES = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8"}
@@ -49,6 +50,7 @@ class Store:
         self.sessions = {}
         self.fails = {}
         self.signups = {}
+        self.pairs = {}
         self.last_seen = {}
         if os.path.exists(DB_PATH):
             with open(DB_PATH, encoding="utf-8") as f:
@@ -148,6 +150,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json({"ok": True, "ip": primary_ip(), "port": PORT})
         if url.path == "/ca.crt":
             return self.serve_ca()
+        if url.path == "/api/pair/status":
+            return self.handle_pair_status(parse_qs(url.query))
         if url.path == "/api/ca":
             return self.handle_ca()
         if url.path == "/api/sync":
@@ -197,7 +201,8 @@ class Handler(BaseHTTPRequestHandler):
                   "/api/send": self.handle_send, "/api/group": self.handle_group,
                   "/api/group/add": self.handle_group_add, "/api/group/leave": self.handle_group_leave,
                   "/api/friend": self.handle_friend, "/api/friend/scan": self.handle_friend_scan,
-                  "/api/friend/code": self.handle_friend_code, "/api/logout": self.handle_logout}
+                  "/api/friend/code": self.handle_friend_code, "/api/logout": self.handle_logout,
+                  "/api/pair/create": self.handle_pair_create, "/api/pair/claim": self.handle_pair_claim}
         route = routes.get(urlparse(self.path).path)
         if not route:
             return self.send_json({"error": "Không tìm thấy"}, 404)
@@ -206,7 +211,7 @@ class Handler(BaseHTTPRequestHandler):
         except (ValueError, KeyError, TypeError):
             self.send_json({"error": "Dữ liệu gửi lên không hợp lệ"}, 400)
 
-    def session(self, user):
+    def session(self, user, extra=None):
         token = secrets.token_hex(24)
         with self.store.cond:
             self.store.sessions[hashlib.sha256(token.encode()).hexdigest()] = (user["id"], time.time() + SESSION_SECONDS)
@@ -214,7 +219,7 @@ class Handler(BaseHTTPRequestHandler):
             self.store.last_seen[user["id"]] = time.time()
             self.store.save()
         self.send_json({"token": token, "id": user["id"], "name": user["name"], "pub": user["pub"], "priv": user["priv"],
-                        "code": user["code"]})
+                        "code": user["code"], **(extra or {})})
 
     def handle_register(self, body):
         name = clean_name(body["name"])
@@ -255,6 +260,44 @@ class Handler(BaseHTTPRequestHandler):
         with store.cond:
             store.fails.pop(key, None)
         self.session(user)
+
+    def device_name(self):
+        ua = self.headers.get("User-Agent", "")
+        os_name = next((n for k, n in (("iPhone", "iPhone"), ("iPad", "iPad"), ("Android", "Android"), ("Windows", "Windows"),
+                                         ("Mac OS", "macOS"), ("Linux", "Linux")) if k in ua), "Thiết bị")
+        browser = next((n for k, n in (("Edg/", "Edge"), ("CriOS", "Chrome"), ("Chrome/", "Chrome"), ("Firefox/", "Firefox"),
+                                         ("Safari/", "Safari")) if k in ua), "trình duyệt")
+        return f"{os_name} · {browser}"
+
+    def handle_pair_create(self, body):
+        """Máy tính tạo mã kết nối dùng một lần. Khóa riêng đã được mã hóa bằng khóa chỉ nằm trong mã QR."""
+        uid = self.current_user()
+        if not uid:
+            return self.send_json({"error": "Phiên đăng nhập đã hết hạn"}, 401)
+        blob = {"iv": str(body["blob"]["iv"])[:64], "ct": str(body["blob"]["ct"])[:8192]}
+        token = secrets.token_urlsafe(24)
+        now = time.time()
+        with self.store.cond:
+            self.store.pairs = {k: p for k, p in self.store.pairs.items() if p["exp"] > now - 600}
+            self.store.pairs[token] = {"uid": uid, "blob": blob, "exp": now + PAIR_SECONDS, "device": None}
+        self.send_json({"token": token, "ttl": PAIR_SECONDS})
+
+    def handle_pair_claim(self, body):
+        store = self.store
+        with store.cond:
+            pair_info = store.pairs.get(str(body["token"]))
+            if not pair_info or pair_info["device"] or pair_info["exp"] < time.time():
+                return self.send_json({"error": "Mã kết nối đã hết hạn hoặc đã được dùng. Hãy tạo mã mới trên máy tính"}, 410)
+            pair_info["device"] = self.device_name()
+            user = store.users[pair_info["uid"]]
+        self.session(user, {"blob": pair_info["blob"]})
+
+    def handle_pair_status(self, query):
+        uid = self.current_user()
+        pair_info = self.store.pairs.get(query.get("token", [""])[0])
+        if not uid or not pair_info or pair_info["uid"] != uid:
+            return self.send_json({"error": "Không tìm thấy mã kết nối"}, 404)
+        self.send_json({"device": pair_info["device"], "left": max(0, int(pair_info["exp"] - time.time()))})
 
     def handle_logout(self, body):
         key = hashlib.sha256(self.headers.get("X-Token", "").encode()).hexdigest()

@@ -190,7 +190,21 @@
         .soc-row .acts { display: flex; gap: .3rem; flex: none; }
         .soc-empty { padding: 1rem; color: var(--muted); font-size: .84rem; }
         .scan-video { width: 100%; max-height: 300px; border-radius: 12px; background: var(--side); display: block; }
+        .scan-box { position: relative; }
+        .scan-box::after { content: ""; position: absolute; inset: 18% 22%; border: 3px solid rgba(255, 255, 255, .85); border-radius: 14px; pointer-events: none; }
+        .scan-perm { text-align: center; padding: 1.2rem 1rem; border-radius: 12px; background: var(--panel-2); border: 1px solid var(--border); display: grid; gap: .5rem; justify-items: center; }
+        .scan-perm .big { font-size: 2rem; }
+        .scan-perm ol { text-align: left; font-size: .82rem; padding-left: 1.1rem; color: var(--muted); }
+        .scan-drop { border: 1.5px dashed var(--border); border-radius: 12px; padding: .8rem; text-align: center; font-size: .82rem; color: var(--muted); display: grid; gap: .45rem; justify-items: center; }
+        .scan-drop.over { border-color: var(--primary); background: var(--primary-soft); }
         .qr-img { width: 240px; max-width: 100%; display: block; margin: .3rem auto; border-radius: 10px; image-rendering: pixelated; }
+        .pair-steps { font-size: .84rem; color: var(--muted); padding-left: 1.1rem; display: grid; gap: .2rem; }
+        .pair-status { text-align: center; font-weight: 600; font-size: .88rem; margin-top: .4rem; }
+        .cap-pages { display: flex; gap: .5rem; overflow-x: auto; padding: .3rem 0; }
+        .cap-page { position: relative; flex: none; width: 74px; border-radius: 6px; border: 1px solid var(--border); overflow: hidden; background: #fff; }
+        .cap-page img { display: block; width: 100%; }
+        .cap-page button { position: absolute; top: 2px; right: 2px; width: 22px; height: 22px; border-radius: 50%; border: 0; background: rgba(15, 23, 42, .75); color: #fff; font-size: .7rem; }
+        .cap-page span { position: absolute; left: 4px; bottom: 2px; font-size: .65rem; color: #0f172a; background: rgba(255, 255, 255, .85); padding: 0 .25rem; border-radius: 4px; }
         .check-row { display: flex; gap: .55rem; align-items: center; padding: .3rem 0; }
 
         .ca-status { display: flex; gap: .7rem; align-items: center; padding: .7rem .8rem; border-radius: 10px; background: var(--panel-2); border: 1px solid var(--border); font-size: .84rem; }
@@ -459,6 +473,7 @@
                 <h1 id="viewTitle">Tin nhắn</h1>
                 <div class="right">
                     <span class="net"><span class="dot on"></span><span id="netLabel">LAN 192.168.1.0/24 · cổng 54321</span></span>
+                    <button class="btn sm hidden" id="pairBtn" title="Đăng nhập trên điện thoại bằng mã QR">📱 Kết nối điện thoại</button>
                     <button class="icon-btn" id="themeBtn" title="Đổi giao diện sáng/tối">◐</button>
                 </div>
             </div>
@@ -533,6 +548,7 @@
                             <h3>📁 Trung tâm ký số tài liệu</h3>
                             <div class="acts">
                                 <div class="doc-tabs" id="docTabs"></div>
+                                <button class="btn sm" id="capDocBtn" type="button">📷 Chụp tài liệu</button>
                                 <label class="btn sm primary">⬆ Tải PDF lên<input type="file" accept="application/pdf,.pdf" id="pdfUpload" hidden></label>
                             </div>
                         </div>
@@ -616,6 +632,7 @@
                         <div class="stage-bar">
                             <b id="docName">📄</b>
                             <span class="muted" id="pageLabel">Trang 1 / 3</span>
+                            <a class="btn sm hidden" id="dlDoc" download>⬇ PDF</a>
                             <div style="display:flex;gap:.3rem">
                                 <button class="btn sm" id="prevPage">‹</button>
                                 <button class="btn sm" id="nextPage">›</button>
@@ -906,6 +923,11 @@
                     history.replaceState(null, '', location.pathname);
                     onFriendCode(code);
                 }
+            } else if (parseDemoCode(location.hash)) {
+                // Mở từ mã QR bằng camera điện thoại ở chế độ minh họa
+                const link = location.hash;
+                history.replaceState(null, '', location.pathname);
+                handleScanned(link);
             }
         };
 
@@ -1178,6 +1200,8 @@
                 state.lanIp = health.ip;
                 state.lanPort = health.port;
                 $('#caLink').classList.remove('hidden');
+                const pairing = parsePair(location.hash);
+                if (pairing) pairLogin(pairing);
                 if (location.hash === '#root-ca') caModal();
                 $('#fName').value = '';
                 $('#fPass').value = '';
@@ -1438,46 +1462,141 @@
             return jsQR(img.data, img.width, img.height)?.data || null;
         }
 
+        // Mã QR đọc được: có máy chủ thì kết bạn thật, chế độ minh họa thì thêm vào danh bạ trên máy này
+        const parseDemoCode = text => {
+            const m = text.match(/#demo-add=([^&]+)/);
+            if (!m) return null;
+            try { return decodeURIComponent(m[1]).trim().slice(0, 60) || null; } catch (e) { return null; }
+        };
+
+        function handleScanned(text) {
+            if (parsePair(text)) {
+                stopScan();
+                closeModal();
+                toast('Đây là mã đăng nhập cho điện thoại. Hãy quét bằng camera điện thoại khi chưa đăng nhập');
+                return true;
+            }
+            if (state.server) {
+                const code = parseFriendCode(text);
+                if (code) onFriendCode(code);
+                return !!code;
+            }
+            const name = parseDemoCode(text);
+            if (!name) return false;
+            stopScan();
+            closeModal();
+            if (name === state.user) toast('Đây là mã QR của chính bạn');
+            else if (state.contacts.some(c => c.name === name)) toast(`${name} đã có trong danh bạ`);
+            else addContact(name, 'Quét mã QR');
+            return true;
+        }
+
+        async function cameraPermission() {
+            try { return (await navigator.permissions.query({ name: 'camera' })).state; } catch (e) { return 'prompt'; }
+        }
+
+        const CAMERA_HELP = `<ol>
+            <li>Máy tính: bấm biểu tượng bên trái thanh địa chỉ, chọn Camera, chọn Cho phép.</li>
+            <li>Điện thoại: vào Cài đặt của trình duyệt, chọn Quyền trang web, chọn Camera, chọn Cho phép.</li>
+            <li>Tải lại trang rồi bấm Quét QR lần nữa.</li></ol>`;
+
         async function scanModal() {
             modal('Quét mã QR kết bạn', `
-                <video class="scan-video" id="scanVideo" playsinline muted></video>
-                <p class="muted" id="scanMsg" style="text-align:center;margin:.5rem 0">Đang bật camera…</p>
-                <label class="btn sm" style="justify-self:center">🖼 Chọn ảnh mã QR<input type="file" accept="image/*" id="qrFile" hidden></label>`);
+                <div class="scan-perm hidden" id="scanPerm"></div>
+                <div class="scan-box hidden" id="scanBox"><video class="scan-video" id="scanVideo" playsinline muted></video></div>
+                <select class="input hidden" id="camSelect" aria-label="Chọn camera" style="margin-top:.5rem"></select>
+                <p class="muted" id="scanMsg" style="text-align:center;margin:.5rem 0"></p>
+                <div class="scan-drop" id="qrDrop">
+                    <span>Hoặc dùng ảnh chụp mã QR: kéo thả ảnh vào đây, hay dán ảnh bằng Ctrl+V</span>
+                    <label class="btn sm">🖼 Chọn ảnh mã QR<input type="file" accept="image/*" id="qrFile" hidden></label>
+                </div>`);
             const msg = t => { if ($('#scanMsg')) $('#scanMsg').textContent = t; };
-            $('#qrFile').onchange = async e => {
-                const f = e.target.files[0];
-                if (!f) return;
-                const bmp = await createImageBitmap(f);
-                const code = parseFriendCode(readQr(bmp, bmp.width, bmp.height) || '');
-                if (code) onFriendCode(code); else msg('Ảnh này không có mã QR kết bạn. Hãy chọn ảnh khác');
+            const perm = (html) => { $('#scanPerm').innerHTML = html; $('#scanPerm').classList.remove('hidden'); $('#scanBox').classList.add('hidden'); };
+            let stream = null, timer = null;
+
+            const readImage = async file => {
+                if (!file || !file.type.startsWith('image/')) return msg('Hãy chọn một file ảnh');
+                if (!window.jsQR) return msg('Chưa tải được bộ đọc mã QR. Hãy tải lại trang');
+                const bmp = await createImageBitmap(file).catch(() => null);
+                if (!bmp) return msg('Không mở được ảnh này. Hãy chọn ảnh khác');
+                const text = readQr(bmp, bmp.width, bmp.height);
+                if (!text) msg('Không thấy mã QR trong ảnh. Hãy chụp rõ và đủ cả mã');
+                else if (!handleScanned(text)) msg('Đây không phải mã QR kết bạn của LAN Chat');
             };
-            if (!navigator.mediaDevices?.getUserMedia) {
-                msg('Trình duyệt chỉ cho bật camera khi mở app bằng địa chỉ https://. Bạn có thể chọn ảnh mã QR.');
-                return;
+            const onPaste = e => readImage([...(e.clipboardData?.files || [])][0]);
+            const drop = $('#qrDrop');
+            drop.ondragover = e => { e.preventDefault(); drop.classList.add('over'); };
+            drop.ondragleave = () => drop.classList.remove('over');
+            drop.ondrop = e => { e.preventDefault(); drop.classList.remove('over'); readImage(e.dataTransfer.files[0]); };
+            $('#qrFile').onchange = e => readImage(e.target.files[0]);
+            document.addEventListener('paste', onPaste);
+
+            const stopCamera = () => { clearTimeout(timer); stream?.getTracks().forEach(t => t.stop()); stream = null; };
+            stopScanner = () => { stopCamera(); document.removeEventListener('paste', onPaste); };
+
+            async function listCameras(current) {
+                const cams = (await navigator.mediaDevices.enumerateDevices()).filter(d => d.kind === 'videoinput');
+                const sel = $('#camSelect');
+                if (!sel) return;
+                sel.classList.toggle('hidden', cams.length < 2);
+                sel.innerHTML = cams.map((c, i) => `<option value="${esc(c.deviceId)}">${esc(c.label || 'Camera ' + (i + 1))}</option>`).join('');
+                if (current) sel.value = current;
+                sel.onchange = () => startCamera(sel.value);
             }
-            let stream;
-            try {
-                stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-            } catch (e) {
-                msg(e.name === 'NotAllowedError' ? 'Camera đang bị chặn. Hãy cho phép camera trên trình duyệt rồi quét lại, hoặc chọn ảnh mã QR.'
-                    : 'Không tìm thấy camera. Bạn có thể chọn ảnh mã QR.');
-                return;
-            }
-            const video = $('#scanVideo');
-            if (!video) { stream.getTracks().forEach(t => t.stop()); return; }
-            let timer = null;
-            stopScanner = () => { clearTimeout(timer); stream.getTracks().forEach(t => t.stop()); };
-            video.srcObject = stream;
-            await video.play().catch(() => { });
-            msg('Đưa mã QR của người muốn kết bạn vào khung hình');
-            const tick = () => {
-                if (video.videoWidth) {
-                    const code = parseFriendCode(readQr(video, video.videoWidth, video.videoHeight) || '');
-                    if (code) { onFriendCode(code); return; }
+
+            async function startCamera(deviceId) {
+                stopCamera();
+                msg('Đang bật camera…');
+                try {
+                    stream = await navigator.mediaDevices.getUserMedia({ video: deviceId ? { deviceId: { exact: deviceId } } : { facingMode: 'environment' } });
+                } catch (e) {
+                    if (e.name === 'NotAllowedError') {
+                        perm(`<span class="big">🚫</span><b>Camera đang bị chặn</b><span class="muted" style="font-size:.84rem">Bạn đã từ chối quyền camera cho trang này. Cách mở lại:</span>${CAMERA_HELP}`);
+                        msg('Trong lúc chờ, bạn vẫn có thể dùng ảnh chụp mã QR.');
+                    } else if (e.name === 'NotReadableError') {
+                        msg('Camera đang được ứng dụng khác dùng (Zoom, Teams…). Hãy tắt ứng dụng đó rồi chọn lại camera.');
+                    } else {
+                        perm('<span class="big">📷</span><b>Không tìm thấy camera</b><span class="muted" style="font-size:.84rem">Hãy cắm webcam, hoặc mở link app trên điện thoại để quét bằng camera điện thoại.</span>');
+                        msg('Bạn vẫn có thể dùng ảnh chụp mã QR.');
+                    }
+                    return;
                 }
-                timer = setTimeout(tick, 250);
-            };
-            tick();
+                const video = $('#scanVideo');
+                if (!video) { stopCamera(); return; }
+                $('#scanPerm').classList.add('hidden');
+                $('#scanBox').classList.remove('hidden');
+                video.srcObject = stream;
+                await video.play().catch(() => { });
+                listCameras(stream.getVideoTracks()[0]?.getSettings().deviceId);
+                msg('Đưa mã QR vào giữa khung hình');
+                const tick = () => {
+                    if (!stream) return;
+                    if (video.videoWidth && window.jsQR) {
+                        const text = readQr(video, video.videoWidth, video.videoHeight);
+                        if (text && handleScanned(text)) return;
+                        if (text) msg('Đây không phải mã QR kết bạn của LAN Chat');
+                    }
+                    timer = setTimeout(tick, 250);
+                };
+                tick();
+            }
+
+            if (!navigator.mediaDevices?.getUserMedia) {
+                perm('<span class="big">🔒</span><b>Trình duyệt chưa cho dùng camera ở địa chỉ này</b><span class="muted" style="font-size:.84rem">Camera chỉ bật được khi mở app bằng https:// hoặc localhost.</span>');
+                msg('Bạn vẫn có thể dùng ảnh chụp mã QR.');
+                return;
+            }
+            const state0 = await cameraPermission();
+            if (state0 === 'granted') return startCamera();
+            if (state0 === 'denied') {
+                perm(`<span class="big">🚫</span><b>Camera đang bị chặn</b><span class="muted" style="font-size:.84rem">Trang này chưa được phép dùng camera. Cách mở lại:</span>${CAMERA_HELP}`);
+                msg('Trong lúc chờ, bạn vẫn có thể dùng ảnh chụp mã QR.');
+                return;
+            }
+            perm(`<span class="big">📷</span><b>Cho phép dùng camera để quét mã</b>
+                <span class="muted" style="font-size:.84rem">Hình ảnh chỉ được xử lý trên thiết bị này, không gửi đi đâu. Trình duyệt sẽ hỏi bạn xác nhận.</span>
+                <button class="btn primary" id="camAllow" type="button">Cho phép camera</button>`);
+            $('#camAllow').onclick = () => startCamera();
         }
 
         async function onFriendCode(code) {
@@ -1560,6 +1679,244 @@
         $('#caLink').onclick = caModal;
         $('#caOpen').onclick = caModal;
 
+        // ============ Kết nối điện thoại bằng mã QR ============
+        // Mã QR chứa địa chỉ LAN, mã xác thực dùng một lần và khóa giải mã khóa riêng.
+        // Khóa giải mã nằm sau dấu # nên trình duyệt không bao giờ gửi nó lên máy chủ.
+        const b64url = buf => b64(buf).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+        const unb64url = s => unb64(s.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - s.length % 4) % 4));
+        const parsePair = text => {
+            const m = (text || '').match(/#pair=([\w-]+)\.([\w-]+)/);
+            return m ? { token: m[1], key: m[2] } : null;
+        };
+
+        async function pairModal() {
+            let raw, d;
+            try {
+                raw = crypto.getRandomValues(new Uint8Array(32));
+                const k = await crypto.subtle.importKey('raw', raw, 'AES-GCM', false, ['encrypt']);
+                const iv = crypto.getRandomValues(new Uint8Array(12));
+                const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, k, await crypto.subtle.exportKey('pkcs8', keyPair.privateKey));
+                d = await api('pair/create', { blob: { iv: b64(iv), ct: b64(ct) } });
+            } catch (e) { toast(e.message); return; }
+            const local = ['localhost', '127.0.0.1'].includes(location.hostname);
+            const host = local ? `${state.lanIp}:${state.lanPort}` : location.host;
+            const qr = qrcode(0, 'M');
+            qr.addData(`https://${host}/#pair=${d.token}.${b64url(raw)}`);
+            qr.make();
+            modal('Kết nối điện thoại', `
+                <img class="qr-img" id="pairQr" alt="Mã QR kết nối điện thoại" src="${qr.createDataURL(5, 16)}">
+                <ol class="pair-steps">
+                    <li>Điện thoại dùng chung mạng Wi‑Fi với máy tính này.</li>
+                    <li>Mở camera điện thoại, quét mã và chạm vào đường link hiện ra.</li>
+                    <li>Nếu trình duyệt cảnh báo bảo mật, hãy cài chứng thư gốc (Root CA) hoặc chọn Tiếp tục.</li>
+                </ol>
+                <div class="pair-status" id="pairStatus">Mã còn hiệu lực ${d.ttl} giây</div>
+                <p class="muted" style="font-size:.76rem;text-align:center">Mã chỉ dùng được một lần. Không chụp hay gửi mã này cho người khác.</p>`,
+                `<button class="btn" id="pairNew">Tạo mã mới</button><button class="btn primary" data-close>Đóng</button>`);
+            $('#pairNew').onclick = pairModal;
+            const timer = setInterval(async () => {
+                if (!$('#pairStatus')) return clearInterval(timer);
+                try {
+                    const s = await api('pair/status?token=' + d.token);
+                    if (!$('#pairStatus')) return;
+                    if (s.device) {
+                        clearInterval(timer);
+                        $('#pairStatus').textContent = `✅ Đã kết nối: ${s.device}`;
+                        $('#pairQr').style.opacity = .25;
+                        toast(`📱 Điện thoại đã kết nối (${s.device})`);
+                    } else if (!s.left) {
+                        clearInterval(timer);
+                        $('#pairStatus').textContent = 'Mã đã hết hạn. Bấm "Tạo mã mới" để thử lại';
+                        $('#pairQr').style.opacity = .25;
+                    } else $('#pairStatus').textContent = `Đang chờ điện thoại quét… còn ${s.left} giây`;
+                } catch (e) { }
+            }, 2000);
+            stopScanner = () => clearInterval(timer);
+        }
+        $('#pairBtn').onclick = pairModal;
+
+        // Điện thoại mở link từ mã QR: đăng nhập không cần mật khẩu
+        async function pairLogin({ token, key }) {
+            history.replaceState(null, '', location.pathname);
+            mode = 'login';
+            $('#loginBtn').disabled = true;
+            toast('📱 Đang kết nối với máy tính…');
+            try {
+                const d = await api('pair/claim', { token });
+                await generateKeys();
+                const k = await crypto.subtle.importKey('raw', unb64url(key), 'AES-GCM', false, ['decrypt']);
+                const pkcs8 = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(d.blob.iv) }, k, unb64(d.blob.ct));
+                const algo = { name: 'RSA-OAEP', hash: 'SHA-256' };
+                keyPair = {
+                    privateKey: await crypto.subtle.importKey('pkcs8', pkcs8, algo, true, ['decrypt']),
+                    publicKey: await crypto.subtle.importKey('spki', unb64(d.pub), algo, true, ['encrypt']),
+                };
+                await publishKeys();
+                Object.assign(state, { token: d.token, me: d.id, user: d.name, code: d.code, people: {}, seen: new Set(),
+                    passHash: '(đăng nhập bằng mã QR từ máy tính)', isNew: false, histKey: null });
+            } catch (err) {
+                regResult(false, err.name === 'OperationError' ? 'Mã QR bị hỏng hoặc thiếu. Hãy quét lại mã mới trên máy tính.' : regError(err), '#fName');
+                return;
+            }
+            await enterApp();
+            toast(`✅ Đã kết nối với máy tính. Chào mừng ${state.user}!`);
+            enterServerUi();
+            renderContacts();
+            syncLoop();
+        }
+
+        // ============ Chụp ảnh văn bản thành PDF ============
+        // Ghép ảnh JPEG thành PDF (ảnh nén DCT), không cần thư viện hay Internet
+        function imagesToPdf(pages) {
+            const parts = [], offsets = [];
+            let size = 0;
+            const put = x => { const b = typeof x === 'string' ? Uint8Array.from(x, c => c.charCodeAt(0)) : x; parts.push(b); size += b.length; };
+            const obj = (id, write) => { offsets[id] = size; put(`${id} 0 obj\n`); write(); put('\nendobj\n'); };
+            put('%PDF-1.4\n%\xE2\xE3\xCF\xD3\n');
+            obj(1, () => put('<< /Type /Catalog /Pages 2 0 R >>'));
+            obj(2, () => put(`<< /Type /Pages /Kids [${pages.map((_, i) => `${3 + i * 3} 0 R`).join(' ')}] /Count ${pages.length} >>`));
+            pages.forEach((p, i) => {
+                const id = 3 + i * 3, w = 595, ht = Math.round(595 * p.h / p.w);
+                const draw = `q ${w} 0 0 ${ht} 0 0 cm /Im${i} Do Q`;
+                obj(id, () => put(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${w} ${ht}] /Resources << /XObject << /Im${i} ${id + 2} 0 R >> >> /Contents ${id + 1} 0 R >>`));
+                obj(id + 1, () => put(`<< /Length ${draw.length} >>\nstream\n${draw}\nendstream`));
+                obj(id + 2, () => {
+                    put(`<< /Type /XObject /Subtype /Image /Width ${p.w} /Height ${p.h} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length ${p.jpeg.length} >>\nstream\n`);
+                    put(p.jpeg);
+                    put('\nendstream');
+                });
+            });
+            const total = 3 + pages.length * 3, xref = size;
+            put(`xref\n0 ${total}\n0000000000 65535 f \n` + offsets.slice(1).map(o => String(o).padStart(10, '0') + ' 00000 n \n').join(''));
+            put(`trailer\n<< /Size ${total} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`);
+            const out = new Uint8Array(size);
+            let at = 0;
+            for (const b of parts) { out.set(b, at); at += b.length; }
+            return out;
+        }
+
+        // Tài liệu từ ảnh chụp, có cùng cách dùng như tài liệu pdf.js để trình ký hiển thị được
+        function imageDoc(pages) {
+            return {
+                numPages: pages.length,
+                getPage: async n => {
+                    const p = pages[n - 1];
+                    return {
+                        getViewport: ({ scale }) => ({ width: 595 * scale, height: 595 * p.h / p.w * scale }),
+                        render: ({ canvasContext, viewport }) => ({
+                            promise: new Promise(resolve => {
+                                const img = new Image();
+                                img.onload = () => { canvasContext.drawImage(img, 0, 0, viewport.width, viewport.height); resolve(); };
+                                img.src = p.url;
+                            }),
+                        }),
+                    };
+                },
+            };
+        }
+
+        // Làm rõ chữ: chuyển xám và kéo giãn độ tương phản
+        function enhance(ctx, w, ht) {
+            const img = ctx.getImageData(0, 0, w, ht), d = img.data, hist = new Array(256).fill(0);
+            for (let i = 0; i < d.length; i += 4) hist[(d[i] * .299 + d[i + 1] * .587 + d[i + 2] * .114) | 0]++;
+            const cut = w * ht * .02;
+            let lo = 0, hi = 255, acc = 0;
+            while (lo < 255 && (acc += hist[lo]) < cut) lo++;
+            acc = 0;
+            while (hi > 0 && (acc += hist[hi]) < cut) hi--;
+            const span = Math.max(1, hi - lo);
+            for (let i = 0; i < d.length; i += 4) {
+                const v = Math.max(0, Math.min(255, ((d[i] * .299 + d[i + 1] * .587 + d[i + 2] * .114) - lo) * 255 / span));
+                d[i] = d[i + 1] = d[i + 2] = v;
+            }
+            ctx.putImageData(img, 0, 0);
+        }
+
+        async function capturePage(source, w, ht, clean) {
+            const scale = Math.min(1, 1600 / Math.max(w, ht));
+            const c = document.createElement('canvas');
+            c.width = Math.round(w * scale);
+            c.height = Math.round(ht * scale);
+            const ctx = c.getContext('2d', { willReadFrequently: true });
+            ctx.fillStyle = '#fff';
+            ctx.fillRect(0, 0, c.width, c.height);
+            ctx.drawImage(source, 0, 0, c.width, c.height);
+            if (clean) enhance(ctx, c.width, c.height);
+            const url = c.toDataURL('image/jpeg', .85);
+            return { url, jpeg: unb64(url.split(',')[1]), w: c.width, h: c.height };
+        }
+
+        async function captureModal() {
+            const pages = [];
+            const today = new Date().toLocaleDateString('vi-VN').replace(/\//g, '-');
+            modal('Chụp ảnh văn bản thành PDF', `
+                <div class="scan-box hidden" id="capBox"><video class="scan-video" id="capVideo" playsinline muted></video></div>
+                <p class="muted" id="capMsg" style="text-align:center;margin:.4rem 0">Đặt giấy tờ trên nền phẳng, đủ sáng, rồi chụp từng trang.</p>
+                <div style="display:flex;gap:.4rem;flex-wrap:wrap;justify-content:center">
+                    <button class="btn primary hidden" id="capShot" type="button">📸 Chụp trang</button>
+                    <button class="btn" id="capCam" type="button">📷 Bật camera</button>
+                    <label class="btn">🖼 Ảnh có sẵn hoặc app camera<input type="file" accept="image/*" capture="environment" multiple id="capFile" hidden></label>
+                </div>
+                <label class="check-row"><input type="checkbox" id="capClean" checked><span>Làm rõ chữ (chuyển trắng đen, tăng tương phản)</span></label>
+                <div class="cap-pages" id="capPages"></div>
+                <div class="field" style="margin:.4rem 0 0"><label for="capName">Tên tài liệu</label><input class="input" id="capName" value="TaiLieu_Chup_${today}"></div>`,
+                `<button class="btn" data-close>Hủy</button><button class="btn green" id="capMake" disabled>Tạo PDF và ký</button>`);
+            const msg = t => { if ($('#capMsg')) $('#capMsg').textContent = t; };
+            const draw = () => {
+                $('#capPages').innerHTML = pages.map((p, i) => `<div class="cap-page"><img src="${p.url}" alt="Trang ${i + 1}"><span>${i + 1}</span><button type="button" data-del="${i}" aria-label="Bỏ trang ${i + 1}">✕</button></div>`).join('');
+                $$('[data-del]').forEach(b => b.onclick = () => { pages.splice(+b.dataset.del, 1); draw(); });
+                $('#capMake').disabled = !pages.length;
+                $('#capMake').textContent = pages.length ? `Tạo PDF (${pages.length} trang) và ký` : 'Tạo PDF và ký';
+            };
+            let stream = null;
+            stopScanner = () => stream?.getTracks().forEach(t => t.stop());
+            $('#capFile').onchange = async e => {
+                for (const f of e.target.files) {
+                    const bmp = await createImageBitmap(f).catch(() => null);
+                    if (bmp) pages.push(await capturePage(bmp, bmp.width, bmp.height, $('#capClean').checked));
+                    else msg(`Không mở được ảnh ${f.name}`);
+                }
+                e.target.value = '';
+                draw();
+            };
+            $('#capCam').onclick = async () => {
+                if (!navigator.mediaDevices?.getUserMedia) return msg('Camera chỉ bật được khi mở app bằng https:// hoặc localhost. Hãy dùng ảnh có sẵn.');
+                try {
+                    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1920 } } });
+                } catch (e) {
+                    return msg(e.name === 'NotAllowedError' ? 'Camera đang bị chặn. Hãy cho phép camera cho trang này, hoặc dùng ảnh có sẵn.' : 'Không bật được camera. Hãy dùng ảnh có sẵn.');
+                }
+                const v = $('#capVideo');
+                if (!v) return stopScanner();
+                v.srcObject = stream;
+                await v.play().catch(() => { });
+                $('#capBox').classList.remove('hidden');
+                $('#capShot').classList.remove('hidden');
+                $('#capCam').classList.add('hidden');
+                msg('Căn giấy tờ vào khung rồi bấm Chụp trang');
+            };
+            $('#capShot').onclick = async () => {
+                const v = $('#capVideo');
+                if (!v.videoWidth) return;
+                pages.push(await capturePage(v, v.videoWidth, v.videoHeight, $('#capClean').checked));
+                draw();
+                msg(`Đã chụp ${pages.length} trang. Chụp tiếp hoặc bấm Tạo PDF.`);
+            };
+            $('#capMake').onclick = () => {
+                const name = ($('#capName').value.trim() || 'TaiLieu_Chup').replace(/\.pdf$/i, '') + '.pdf';
+                const bytes = imagesToPdf(pages);
+                const d = newDoc(name, name.replace(/\.pdf$/i, '').replace(/[_-]+/g, ' '), state.user, imageDoc(pages.slice()));
+                d.pdfUrl = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+                state.docs.unshift(d);
+                state.docFilter = 'todo';
+                addHistory('📷', `Chụp và số hóa ${pages.length} trang`, d.name);
+                closeModal();
+                toast(`✅ Đã tạo ${name} (${pages.length} trang). Đặt chữ ký rồi bấm Ký số`);
+                openDoc(d.id);
+            };
+        }
+        $('#capDocBtn').onclick = captureModal;
+
         // Giao diện thật khi đăng nhập qua máy chủ LAN
         function enterServerUi() {
             for (const c of state.contacts) if (!c.real && !c.group) c.role += ' · trả lời tự động';
@@ -1570,6 +1927,7 @@
             $('#pPrivNote').textContent = note;
             $('#aPrivNote').textContent = '🔒 ' + note;
             $('#socialPanel').classList.remove('hidden');
+            $('#pairBtn').classList.remove('hidden');
             $('#caCard').classList.remove('hidden');
             $('#syncBtn').classList.remove('hidden');
             $('#scanBtn').onclick = scanModal;
@@ -1958,22 +2316,24 @@
             }
         }
 
+        // Mã là đường link của chính trang này: điện thoại quét bằng camera thường cũng mở đúng app để thêm bạn
+        const demoLink = () => `${location.href.split('#')[0]}#demo-add=${encodeURIComponent(state.user)}`;
         $('#myQrBtn').onclick = () => {
-            modal('Mã QR của tôi', `
-                <canvas class="qr" id="qrCanvas"></canvas>
-                <p style="text-align:center"><b>${esc(state.user)}</b><br><span class="mono muted">192.168.1.10:54321</span></p>
-                <p class="muted" style="text-align:center;font-size:.78rem">Mã chứa IP, cổng và khóa công khai. Người khác quét mã này để thêm bạn.<br>Vân tay: <span class="mono">${fmtFp(state.fingerprint)}</span></p>`);
-            drawQr($('#qrCanvas'), state.fingerprint);
+            let img = '<canvas class="qr" id="qrCanvas"></canvas>';
+            if (window.qrcode) {
+                const qr = qrcode(0, 'M');
+                qr.addData(demoLink());
+                qr.make();
+                img = `<img class="qr-img" id="myQr" alt="Mã QR của ${esc(state.user)}" src="${qr.createDataURL(6, 16)}">`;
+            }
+            modal('Mã QR của tôi', `${img}
+                <p style="text-align:center"><b>${esc(state.user)}</b></p>
+                <p class="muted" style="text-align:center;font-size:.8rem">Người khác bấm Quét QR trong app, hoặc quét bằng camera điện thoại để mở app và thêm bạn vào danh bạ.</p>
+                <p class="muted" style="text-align:center;font-size:.76rem">Vân tay: <span class="mono">${fmtFp(state.fingerprint)}</span></p>`);
+            if (!window.qrcode) drawQr($('#qrCanvas'), state.fingerprint);
         };
 
-        $('#scanBtn').onclick = () => {
-            modal('Quét mã QR', `<div class="scan"></div><p class="muted" style="text-align:center">Đưa mã QR của đồng nghiệp vào khung…</p>`);
-            setTimeout(() => {
-                if (!$('.scan')) return;
-                closeModal();
-                addContact('Vũ Thanh Tâm', '192.168.1.' + (60 + Math.floor(Math.random() * 40)));
-            }, 2200);
-        };
+        $('#scanBtn').onclick = scanModal;
 
         $('#addBtn').onclick = () => {
             modal('Thêm liên hệ thủ công', `
@@ -2083,6 +2443,8 @@
                 (signerDone || doc().signatures.length > doc().signerIdx ? '' : `<div class="sig-place draft" id="draft" tabindex="0" style="left:${state.draft.x}%;top:${state.draft.y}%">
                     <img src="${sigImage || ''}" alt=""> Ký số bởi: <b>${esc(SIGNERS()[doc().signerIdx].name)}</b><br>Kéo để đặt vị trí</div>`);
             $('#pageLabel').textContent = `Trang ${state.page} / ${PAGES()}`;
+            $('#dlDoc').classList.toggle('hidden', !doc().pdfUrl);
+            if (doc().pdfUrl) { $('#dlDoc').href = doc().pdfUrl; $('#dlDoc').download = doc().name; }
             renderThumbs();
             bindDraft();
             if (isPdf) renderPdfPage(pg);
