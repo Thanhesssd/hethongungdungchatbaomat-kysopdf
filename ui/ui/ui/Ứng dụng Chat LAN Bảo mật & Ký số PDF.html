@@ -1367,7 +1367,7 @@
                 const friendIds = new Set(d.users.filter(u => u.friend).map(u => u.id));
                 for (const u of prev.outgoing) if (friendIds.has(u.id)) {
                     toast(`🎉 ${u.name} đã đồng ý kết bạn. Hai bạn có thể nhắn tin ngay`);
-                    if (state.active == null) openChat(u.id, true);
+                    openChat(u.id, $('#view-chat').classList.contains('hidden'));
                 }
             }
             renderRequestPopups();
@@ -1435,6 +1435,10 @@
                 await api('friend', { action, id });
                 if (done) toast(done);
                 await refresh();
+                if (action === 'accept' && state.contacts.some(c => c.id === id)) {
+                    go('chat');
+                    openChat(id);
+                }
             } catch (e) { toast(e.message); }
         }
 
