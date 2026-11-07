@@ -490,6 +490,7 @@
                 <div class="right">
                     <span class="net"><span class="dot busy" id="netDot"></span><span id="netLabel">Bản minh họa · chưa kết nối máy chủ</span></span>
                     <button class="btn sm hidden" id="reconnectBtn" type="button" title="Thử kết nối lại máy chủ ngay">↻ Kết nối lại</button>
+                    <button class="btn sm primary hidden" id="shareSrvBtn" title="Cho máy khác kết nối vào máy chủ này">📡 Chia sẻ máy chủ</button>
                     <button class="btn sm hidden" id="pairBtn" title="Đăng nhập trên điện thoại bằng mã QR">📱 Kết nối điện thoại</button>
                     <button class="icon-btn" id="themeBtn" title="Đổi giao diện sáng/tối">◐</button>
                 </div>
@@ -1301,6 +1302,12 @@
         (async () => {
             // Chờ toàn bộ mã của trang nạp xong rồi mới kiểm tra máy chủ và phiên đã lưu
             await new Promise(r => setTimeout(r));
+            const invited = (location.hash.match(/#server=([\w.:-]+)/) || [])[1];
+            if (invited) {
+                try { localStorage.setItem('lanchat-server', invited.replace(/[.,;:]+$/, '')); } catch (e) { }
+                history.replaceState(null, '', location.pathname);
+                toast(`📡 Đang kết nối tới máy chủ ${invited}…`);
+            }
             let health = null;
             if (location.protocol !== 'file:') health = await probe('').catch(() => null);
             if (!health && savedServer() && location.protocol === 'https:') {
@@ -1608,6 +1615,41 @@
 
         // ============ Kết bạn bằng mã QR ============
         // Mã là một đường dẫn: quét bằng app hoặc camera điện thoại đều mở đúng chỗ kết bạn
+        // ============ Máy A chia sẻ máy chủ cho máy B ============
+        // Mã QR là địa chỉ máy chủ của máy A. Máy B quét bằng camera là mở thẳng app trên máy A;
+        // hoặc mở link GitHub kèm #server=IP để link GitHub tự kết nối vào máy A.
+        const PAGES_APP = 'https://thanhesssd.github.io/hethongungdungchatbaomat-kysopdf/ui/ui/ui/' + encodeURIComponent('Ứng dụng Chat LAN Bảo mật & Ký số PDF.html');
+        function shareServerModal() {
+            const local = ['localhost', '127.0.0.1'].includes(location.hostname);
+            const host = state.apiBase ? new URL(state.apiBase).host : local ? `${state.lanIp}:${state.lanPort}` : location.host;
+            const ip = host.replace(/:8443$/, '');
+            const direct = `https://${host}/`;
+            const viaPages = `${PAGES_APP}#server=${ip}`;
+            const qr = qrcode(0, 'M');
+            qr.addData(direct);
+            qr.make();
+            modal('Chia sẻ máy chủ của máy này', `
+                <p style="text-align:center;font-size:.85rem">Địa chỉ máy chủ (máy A)</p>
+                <p style="text-align:center;font-size:1.6rem;font-weight:800" class="mono" id="srvIp">${esc(ip)}</p>
+                <img class="qr-img" alt="Mã QR địa chỉ máy chủ" src="${qr.createDataURL(5, 16)}">
+                <ol class="pair-steps">
+                    <li>Máy B dùng chung Wi‑Fi với máy này.</li>
+                    <li>Máy B quét mã QR bằng camera, hoặc mở link GitHub, bấm Kết nối máy chủ LAN và nhập <b class="mono">${esc(ip)}</b>.</li>
+                    <li>Máy B đăng ký tài khoản, rồi hai máy kết bạn với nhau để trò chuyện.</li>
+                </ol>
+                <div class="field" style="margin-top:.6rem"><label>Link mời qua GitHub (gửi qua Zalo, Messenger…)</label>
+                    <input class="input mono" id="inviteLink" readonly value="${esc(viaPages)}" style="font-size:.72rem"></div>
+                ${isIp(ip) ? '<p class="muted" style="font-size:.76rem">Địa chỉ này chỉ dùng được trong cùng Wi‑Fi. Máy dùng 4G/5G cần link Internet từ chia-se-internet.bat.</p>' : ''}`,
+                `<button class="btn" id="copyIp">Sao chép IP</button><button class="btn" id="copyInvite">Sao chép link mời</button><button class="btn primary" data-close>Xong</button>`);
+            const copy = async (text, done) => {
+                try { await navigator.clipboard.writeText(text); toast(done); }
+                catch (e) { $('#inviteLink').select(); toast('Nhấn Ctrl+C để sao chép'); }
+            };
+            $('#copyIp').onclick = () => copy(ip, `Đã sao chép ${ip}`);
+            $('#copyInvite').onclick = () => copy(viaPages, 'Đã sao chép link mời');
+        }
+        $('#shareSrvBtn').onclick = shareServerModal;
+
         function friendLink() {
             const local = ['localhost', '127.0.0.1'].includes(location.hostname);
             const host = state.apiBase ? new URL(state.apiBase).host : local ? `${state.lanIp}:${state.lanPort}` : location.host;
@@ -2057,6 +2099,9 @@
             let last = prefill || '';
             try { last = last || localStorage.getItem('lanchat-server') || ''; } catch (e) { }
             modal('Kết nối máy chủ LAN', `
+                <div class="ca-status" style="margin-bottom:.6rem;font-size:.8rem;display:block">
+                    <b>Máy A</b> (làm máy chủ): tải mã nguồn từ GitHub, bấm đúp <span class="mono">cai-dat-may-chu.bat</span>, rồi mở app và bấm <b>📡 Chia sẻ máy chủ</b> để lấy IP.<br>
+                    <b>Máy B</b>: nhập IP của máy A vào ô dưới đây, hoặc quét mã QR máy A đưa.</div>
                 <p style="font-size:.86rem">Để hai máy kết bạn và nhắn tin thật, cả hai phải mở app qua <b>cùng một máy chủ LAN</b>, tức máy đang chạy <span class="mono">server.py</span>. Link GitHub chỉ là bản minh họa.</p>
                 <div class="field" style="margin-top:.7rem"><label for="srvAddr">Địa chỉ máy chủ</label>
                     <input class="input mono" id="srvAddr" placeholder="192.168.1.10 hoặc xxxx.trycloudflare.com" value="${esc(last)}">
@@ -2347,6 +2392,7 @@
             $('#aPrivNote').textContent = '🔒 ' + note;
             $('#socialPanel').classList.remove('hidden');
             $('#pairBtn').classList.remove('hidden');
+            $('#shareSrvBtn').classList.remove('hidden');
             $('#demoBar').classList.add('hidden');
             $('#netDot').className = 'dot on';
             $('#netLabel').textContent = 'Máy chủ LAN ' + serverHost();
