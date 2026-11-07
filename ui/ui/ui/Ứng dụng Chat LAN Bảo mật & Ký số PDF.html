@@ -81,6 +81,7 @@
         .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; background: var(--muted); flex: none; }
         .dot.on { background: var(--green); box-shadow: 0 0 0 3px var(--green-soft); }
         .dot.busy { background: var(--amber); }
+        .dot.down { background: var(--red); box-shadow: 0 0 0 3px var(--red-soft); }
 
         /* ===== Đăng nhập ===== */
         .login { min-height: 100%; display: grid; grid-template-columns: 1fr 1fr; }
@@ -488,6 +489,7 @@
                 <h1 id="viewTitle">Tin nhắn</h1>
                 <div class="right">
                     <span class="net"><span class="dot busy" id="netDot"></span><span id="netLabel">Bản minh họa · chưa kết nối máy chủ</span></span>
+                    <button class="btn sm hidden" id="reconnectBtn" type="button" title="Thử kết nối lại máy chủ ngay">↻ Kết nối lại</button>
                     <button class="btn sm hidden" id="pairBtn" title="Đăng nhập trên điện thoại bằng mã QR">📱 Kết nối điện thoại</button>
                     <button class="icon-btn" id="themeBtn" title="Đổi giao diện sáng/tối">◐</button>
                 </div>
@@ -496,6 +498,7 @@
             <!-- Trang cá nhân -->
             <div class="demo-bar hidden" id="demoBar">
                 <span>⚠ Bản minh họa: chưa kết nối máy chủ LAN, nên không kết bạn hay nhắn tin được với máy khác.</span>
+                <button class="btn sm" type="button" data-discover>🔍 Tự tìm máy chủ</button>
                 <button class="btn sm primary" type="button" data-connect>🔌 Kết nối máy chủ LAN</button>
             </div>
             <div class="view pad" id="view-profile">
@@ -1285,9 +1288,9 @@
         const serverHost = () => state.apiBase ? new URL(state.apiBase).host : location.host;
         const isIp = host => /^\d{1,3}(\.\d{1,3}){3}$/.test(host.replace(/:\d+$/, ''));
         const serverBase = host => `https://${/:\d+$/.test(host) || !isIp(host) ? host : host + ':8443'}/`;
-        async function probe(base) {
+        async function probe(base, ms = 5000) {
             const ctl = new AbortController();
-            const t = setTimeout(() => ctl.abort(), 5000);
+            const t = setTimeout(() => ctl.abort(), ms);
             try {
                 const r = await fetch(base + 'api/health', { signal: ctl.signal, cache: 'no-store' });
                 if (!r.ok) throw new Error();
@@ -1302,13 +1305,19 @@
             if (location.protocol !== 'file:') health = await probe('').catch(() => null);
             if (!health && savedServer() && location.protocol === 'https:') {
                 const base = serverBase(savedServer());
+                netStatus('busy', `Đang kết nối tới ${savedServer()}…`);
                 health = await probe(base).catch(() => null);
                 if (health) state.apiBase = base;
-                else $('#serverNote').textContent = `⚠ Không kết nối được máy chủ ${savedServer()}. Bấm "Kết nối máy chủ LAN" để thử lại.`;
+                else {
+                    $('#serverNote').textContent = `⚠ Không kết nối được máy chủ ${savedServer()}. App sẽ tự thử lại, hoặc bấm "Kết nối máy chủ LAN".`;
+                    netStatus('off', `Mất kết nối máy chủ ${savedServer()}`, true);
+                    watchSavedServer(base);
+                }
             }
             try {
                 if (!health) throw new Error('demo');
                 state.server = true;
+                netStatus('on', `Máy chủ LAN ${serverHost()}`);
                 state.lanIp = health.ip;
                 state.lanPort = health.port;
                 $('#caLink').classList.remove('hidden');
@@ -1384,8 +1393,7 @@
         function setConn(ok) {
             if (!state.server || state.connOk === ok) return;
             state.connOk = ok;
-            $('#netDot').className = 'dot ' + (ok ? 'on' : 'busy');
-            $('#netLabel').textContent = ok ? `Máy chủ LAN ${serverHost()}` : 'Mất kết nối · đang thử lại…';
+            netStatus(ok ? 'on' : 'off', ok ? `Máy chủ LAN ${serverHost()}` : 'Mất kết nối máy chủ · đang tự thử lại…', !ok);
             if (ok) flushOutbox();
         }
 
@@ -1947,6 +1955,103 @@
             } else $('#demoBar').classList.remove('hidden');
         }
 
+        // ============ Trạng thái kết nối, tự kết nối lại, tự tìm máy chủ ============
+        function netStatus(kind, text, showRetry = false) {
+            $('#netDot').className = 'dot ' + (kind === 'on' ? 'on' : kind === 'busy' ? 'busy' : 'down');
+            $('#netLabel').textContent = text;
+            $('#reconnectBtn').classList.toggle('hidden', !showRetry);
+        }
+
+        // Bản minh họa có máy chủ đã lưu nhưng chưa kết nối được: thử lại định kỳ và khi có mạng
+        function watchSavedServer(base) {
+            let busy = false;
+            const attempt = async () => {
+                if (busy || state.server) return;
+                busy = true;
+                netStatus('busy', `Đang kết nối lại ${new URL(base).host}…`);
+                const ok = await probe(base, 4000).then(() => true, () => false);
+                busy = false;
+                if (!ok) return netStatus('off', `Mất kết nối máy chủ ${new URL(base).host}`, true);
+                clearInterval(timer);
+                window.removeEventListener('online', attempt);
+                // Máy chủ đã lưu hoạt động lại: chuyển hẳn sang máy chủ (tài khoản ghi nhớ sẽ tự đăng nhập)
+                netStatus('on', `Đã kết nối lại máy chủ ${new URL(base).host}`);
+                toast('🟢 Máy chủ đã hoạt động trở lại. Đang chuyển sang máy chủ…');
+                setTimeout(() => location.reload(), 1200);
+            };
+            const timer = setInterval(attempt, 10000);
+            window.addEventListener('online', attempt);
+            state.retrySaved = attempt;
+        }
+
+        $('#reconnectBtn').onclick = () => {
+            if (state.server) {
+                netStatus('busy', 'Đang kết nối lại…');
+                state.connOk = null;
+                resyncNow();
+            } else state.retrySaved?.();
+        };
+
+        // Dò máy chủ trong các dải IP nội bộ thường gặp. Trình duyệt không gửi được gói UDP để dò,
+        // nên gọi thử https://IP:8443/api/health song song, mỗi địa chỉ chờ tối đa 1,5 giây.
+        function discoveryTargets() {
+            const port = state.discoverPort || 8443;
+            const prefixes = [];
+            const saved = savedServer().replace(/:\d+$/, '');
+            if (isIp(saved)) prefixes.push(saved.split('.').slice(0, 3).join('.'));
+            prefixes.push('192.168.1', '192.168.0', '192.168.8', '192.168.100', '172.20.10', '10.0.0', '192.168.43');
+            const seen = new Set(), list = [];
+            for (const p of prefixes) if (!seen.has(p)) {
+                seen.add(p);
+                for (let i = 1; i < 255; i++) list.push(`${p}.${i}`);
+            }
+            return list.map(ip => ({ ip, base: `https://${ip}:${port}/` }));
+        }
+
+        async function discoverServer(progress) {
+            const targets = discoveryTargets();
+            // Thử trước máy này và máy chủ đã dùng, chờ lâu hơn vì lần bắt tay HTTPS đầu tiên chậm
+            const port = state.discoverPort || 8443, saved = savedServer().replace(/:\d+$/, '');
+            const first = ['127.0.0.1', ...(isIp(saved) ? [saved] : [])].map(ip => ({ ip, base: `https://${ip}:${port}/` }));
+            const quick = await Promise.all(first.map(t => probe(t.base, 4000).then(() => t, () => null)));
+            const hit = quick.find(Boolean);
+            if (hit) return { ...hit, host: new URL(hit.base).host };
+            let next = 0, found = null, done = 0;
+            const worker = async () => {
+                while (!found && next < targets.length) {
+                    const t = targets[next++];
+                    const h = await probe(t.base, 2000).catch(() => null);
+                    done++;
+                    if (h && !found) found = { ...t, host: new URL(t.base).host };
+                    if (done % 16 === 0) progress?.(done, targets.length, t.ip);
+                }
+            };
+            await Promise.all(Array.from({ length: 48 }, worker));
+            return found;
+        }
+
+        async function runDiscovery() {
+            if (location.protocol !== 'https:') {
+                $('#srvHelp').textContent = 'Tự tìm máy chủ chỉ chạy trên link GitHub (https). Hãy nhập địa chỉ máy chủ.';
+                return;
+            }
+            const btn = $('#srvFind');
+            btn.disabled = true;
+            const info = $('#srvHelp');
+            info.textContent = 'Đang dò tìm máy chủ trong mạng nội bộ…';
+            const hit = await discoverServer((d, n, ip) => { if ($('#srvHelp')) info.textContent = `Đang dò ${ip}… (${d}/${n})`; });
+            if (!$('#srvFind')) return;
+            btn.disabled = false;
+            if (!hit) {
+                info.innerHTML = `Không tìm thấy máy chủ. Hãy kiểm tra máy chủ đang chạy và chung Wi‑Fi, rồi nhập địa chỉ IP bằng tay.
+                    Nếu máy chủ chưa được tin cậy, hãy mở địa chỉ của nó ở tab mới và chọn Nâng cao, Tiếp tục một lần.`;
+                return;
+            }
+            $('#srvAddr').value = hit.host.replace(/:8443$/, '');
+            info.textContent = `🟢 Tìm thấy máy chủ ${hit.host}. Đang kết nối…`;
+            $('#srvGo').click();
+        }
+
         // ============ Kết nối tới máy chủ LAN từ bản minh họa ============
         function connectModal(prefill) {
             let last = prefill || '';
@@ -1957,7 +2062,8 @@
                     <input class="input mono" id="srvAddr" placeholder="192.168.1.10 hoặc xxxx.trycloudflare.com" value="${esc(last)}">
                     <small>Cùng Wi‑Fi: nhập địa chỉ IP, xem ở mục Danh bạ, nút "QR của tôi" trên máy chạy máy chủ. Dùng 4G/5G hoặc khác mạng: nhập link Internet của máy chủ (chạy chia-se-internet.bat).</small></div>
                 <p class="muted" id="srvHelp" style="font-size:.78rem">Lần đầu kết nối, trình duyệt có thể cảnh báo bảo mật hoặc hỏi quyền truy cập mạng nội bộ. Chọn Tiếp tục và Cho phép.</p>`,
-                `<button class="btn" data-close>Hủy</button><button class="btn primary" id="srvGo">Mở app trên máy chủ</button>`);
+                `<button class="btn" data-close>Hủy</button><button class="btn" id="srvFind">🔍 Tự tìm máy chủ</button><button class="btn primary" id="srvGo">Kết nối</button>`);
+            $('#srvFind').onclick = runDiscovery;
             $('#srvGo').onclick = async () => {
                 const v = $('#srvAddr').value.trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
                 if (!v) return toast('Hãy nhập địa chỉ máy chủ');
@@ -1984,7 +2090,10 @@
             };
             $('#srvAddr').focus();
         }
-        document.addEventListener('click', e => { if (e.target.closest('[data-connect]')) connectModal(); });
+        document.addEventListener('click', e => {
+            if (e.target.closest('[data-connect]')) connectModal();
+            if (e.target.closest('[data-discover]')) { connectModal(); runDiscovery(); }
+        });
 
         // ============ Kết nối điện thoại bằng mã QR ============
         // Mã QR chứa địa chỉ LAN, mã xác thực dùng một lần và khóa giải mã khóa riêng.
