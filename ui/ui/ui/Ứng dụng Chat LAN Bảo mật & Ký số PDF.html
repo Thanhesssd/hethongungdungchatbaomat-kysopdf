@@ -210,6 +210,8 @@
         .req-card .person b { font-size: .9rem; }
         .req-card .acts { display: flex; gap: .4rem; justify-content: flex-end; }
         .demo-note { margin: .6rem auto 0; max-width: 92%; font-size: .78rem; text-align: center; color: var(--amber); background: var(--panel); border: 1px dashed var(--amber); border-radius: 10px; padding: .45rem .7rem; }
+        .demo-bar { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; padding: .55rem 1.4rem; background: var(--panel-2); border-bottom: 1px solid var(--border); color: var(--amber); font-size: .84rem; font-weight: 600; }
+        .demo-bar span { flex: 1; min-width: 200px; }
         .check-row { display: flex; gap: .55rem; align-items: center; padding: .3rem 0; }
 
         .ca-status { display: flex; gap: .7rem; align-items: center; padding: .7rem .8rem; border-radius: 10px; background: var(--panel-2); border: 1px solid var(--border); font-size: .84rem; }
@@ -449,6 +451,7 @@
                 </form>
                 <p class="muted" style="font-size:.84rem;margin-top:.8rem"><span id="switchText">Chưa có tài khoản?</span> <button type="button" class="link-btn" id="switchBtn">Đăng ký ngay</button></p>
                 <p class="muted" id="serverNote" style="font-size:.78rem;margin-top:.8rem">Đang dùng chế độ minh họa trên trình duyệt này. Chạy server.py để nhiều người dùng chung.</p>
+                <button type="button" class="link-btn" id="connectLink" data-connect style="font-size:.84rem">🔌 Kết nối máy chủ LAN để nhắn tin với máy khác</button>
                 <button type="button" class="link-btn hidden" id="caLink" style="font-size:.84rem">🛡️ Cài chứng thư gốc (Root CA) để hết cảnh báo Chrome</button>
                 <div class="reg-result hidden" id="regResult" role="status" aria-live="polite"></div>
                 <div class="steps hidden" id="steps">
@@ -490,6 +493,10 @@
             </div>
 
             <!-- Trang cá nhân -->
+            <div class="demo-bar hidden" id="demoBar">
+                <span>⚠ Bản minh họa: chưa kết nối máy chủ LAN, nên không kết bạn hay nhắn tin được với máy khác.</span>
+                <button class="btn sm primary" type="button" data-connect>🔌 Kết nối máy chủ LAN</button>
+            </div>
             <div class="view pad" id="view-profile">
                 <div class="hub">
                     <div class="card hero-card span-12">
@@ -940,6 +947,7 @@
                 ? 'Bạn có thể đăng nhập bằng tài khoản này trên mọi máy trong mạng.'
                 : 'Đây là chế độ minh họa: tài khoản chỉ có trên trình duyệt này.');
             await enterApp();
+            if (!state.server) $('#demoBar').classList.remove('hidden');
             if (mode === 'login') toast(`✅ Đăng nhập thành công. Chào mừng ${state.user}!`);
             if (state.server) {
                 enterServerUi();
@@ -1263,6 +1271,7 @@
                 state.lanIp = health.ip;
                 state.lanPort = health.port;
                 $('#caLink').classList.remove('hidden');
+                $('#connectLink').classList.add('hidden');
                 const pairing = parsePair(location.hash);
                 if (pairing) pairLogin(pairing);
                 if (location.hash === '#root-ca') caModal();
@@ -1519,7 +1528,8 @@
             modal('Mã QR kết bạn của tôi', `
                 <img class="qr-img" id="myQr" alt="Mã QR kết bạn của ${esc(state.user)}" src="${qr.createDataURL(6, 16)}">
                 <p style="text-align:center"><b>${esc(state.user)}</b></p>
-                <p class="muted" style="text-align:center;font-size:.8rem">Người khác bấm Quét QR và đưa camera vào mã này là thành bạn bè ngay.</p>
+                <p class="muted" style="text-align:center;font-size:.8rem">Người khác quét mã này để gửi lời mời kết bạn tới bạn.</p>
+                <p style="text-align:center;font-size:.82rem">Địa chỉ máy chủ: <b class="mono">${esc(friendLink().split('/')[2])}</b></p>
                 <p class="muted" style="text-align:center;font-size:.76rem">Vân tay khóa: <span class="mono">${fmtFp(state.fingerprint)}</span></p>`,
                 `<button class="btn" id="newCode">Đổi mã QR</button><button class="btn primary" data-close>Xong</button>`);
             $('#newCode').onclick = async () => {
@@ -1568,6 +1578,15 @@
                 const code = parseFriendCode(text);
                 if (code) onFriendCode(code);
                 return !!code;
+            }
+            const serverLink = (text.match(/^https:\/\/[^\s/#]+\/#add=[\w-]+$/) || [])[0];
+            if (serverLink) {
+                stopScan();
+                const host = serverLink.split('/')[2];
+                modal('Mã kết bạn của máy chủ LAN', `<p style="font-size:.86rem">Mã QR này thuộc máy chủ <b class="mono">${esc(host)}</b>. Bạn đang ở bản minh họa nên chưa gửi lời mời được.</p>
+                    <p class="muted" style="font-size:.84rem">Bấm nút dưới để mở app trên máy chủ đó, đăng ký hoặc đăng nhập, rồi lời mời kết bạn sẽ được gửi tiếp.</p>`,
+                    `<button class="btn" data-close>Để sau</button><a class="btn primary" href="${esc(serverLink)}">Mở app và kết bạn</a>`);
+                return true;
             }
             const name = parseDemoCode(text);
             if (!name) return false;
@@ -1772,6 +1791,28 @@
         }
         $('#caLink').onclick = caModal;
         $('#caOpen').onclick = caModal;
+
+        // ============ Kết nối tới máy chủ LAN từ bản minh họa ============
+        function connectModal(prefill) {
+            let last = prefill || '';
+            try { last = last || localStorage.getItem('lanchat-server') || ''; } catch (e) { }
+            modal('Kết nối máy chủ LAN', `
+                <p style="font-size:.86rem">Để hai máy kết bạn và nhắn tin thật, cả hai phải mở app qua <b>cùng một máy chủ LAN</b>, tức máy đang chạy <span class="mono">server.py</span>. Link GitHub chỉ là bản minh họa.</p>
+                <div class="field" style="margin-top:.7rem"><label for="srvAddr">Địa chỉ máy chủ</label>
+                    <input class="input mono" id="srvAddr" placeholder="192.168.1.10" value="${esc(last)}">
+                    <small>Xem địa chỉ ở máy chạy máy chủ: mục Danh bạ, nút "QR của tôi". Hai máy phải dùng chung mạng Wi‑Fi.</small></div>
+                <p class="muted" style="font-size:.78rem">Lần đầu mở, trình duyệt có thể cảnh báo bảo mật. Chọn Nâng cao rồi Tiếp tục, hoặc cài chứng thư gốc của máy chủ.</p>`,
+                `<button class="btn" data-close>Hủy</button><button class="btn primary" id="srvGo">Mở app trên máy chủ</button>`);
+            $('#srvGo').onclick = () => {
+                let v = $('#srvAddr').value.trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+                if (!v) return toast('Hãy nhập địa chỉ máy chủ');
+                if (!/:\d+$/.test(v)) v += ':8443';
+                try { localStorage.setItem('lanchat-server', v.replace(/:8443$/, '')); } catch (e) { }
+                location.href = `https://${v}/`;
+            };
+            $('#srvAddr').focus();
+        }
+        document.addEventListener('click', e => { if (e.target.closest('[data-connect]')) connectModal(); });
 
         // ============ Kết nối điện thoại bằng mã QR ============
         // Mã QR chứa địa chỉ LAN, mã xác thực dùng một lần và khóa giải mã khóa riêng.
@@ -2022,6 +2063,7 @@
             $('#aPrivNote').textContent = '🔒 ' + note;
             $('#socialPanel').classList.remove('hidden');
             $('#pairBtn').classList.remove('hidden');
+            $('#demoBar').classList.add('hidden');
             $('#caCard').classList.remove('hidden');
             $('#syncBtn').classList.remove('hidden');
             $('#scanBtn').onclick = scanModal;
