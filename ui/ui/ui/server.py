@@ -31,6 +31,8 @@ MAX_GROUP = 50
 MAX_FAILS = 5
 MAX_SIGNUPS_PER_HOUR = 10
 PAIR_SECONDS = 120
+# Trang được phép dùng máy chủ này từ địa chỉ khác (bản trên GitHub Pages)
+ALLOWED_ORIGINS = {"https://thanhesssd.github.io"} | set(filter(None, os.environ.get("LANCHAT_ORIGINS", "").split(",")))
 LOCK_SECONDS = 60
 SESSION_SECONDS = 30 * 24 * 3600
 STATIC_TYPES = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8"}
@@ -120,9 +122,32 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *args):
         pass
 
+    def cors_headers(self):
+        origin = self.headers.get("Origin", "")
+        if origin in ALLOWED_ORIGINS:
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Vary", "Origin")
+
+    def do_OPTIONS(self):
+        # Trình duyệt hỏi trước khi trang GitHub gọi vào máy chủ trong mạng nội bộ
+        if not urlparse(self.path).path.startswith("/api/") or self.headers.get("Origin", "") not in ALLOWED_ORIGINS:
+            self.send_response(403)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        self.send_response(204)
+        self.cors_headers()
+        self.send_header("Access-Control-Allow-Methods", "GET, POST")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Token")
+        self.send_header("Access-Control-Allow-Private-Network", "true")
+        self.send_header("Access-Control-Max-Age", "600")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
     def send_json(self, data, status=200):
         body = json.dumps(data).encode()
         self.send_response(status)
+        self.cors_headers()
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()

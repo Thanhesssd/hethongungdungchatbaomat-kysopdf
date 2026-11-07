@@ -486,7 +486,7 @@
             <div class="topbar">
                 <h1 id="viewTitle">Tin nhắn</h1>
                 <div class="right">
-                    <span class="net"><span class="dot on"></span><span id="netLabel">LAN 192.168.1.0/24 · cổng 54321</span></span>
+                    <span class="net"><span class="dot busy" id="netDot"></span><span id="netLabel">Bản minh họa · chưa kết nối máy chủ</span></span>
                     <button class="btn sm hidden" id="pairBtn" title="Đăng nhập trên điện thoại bằng mã QR">📱 Kết nối điện thoại</button>
                     <button class="icon-btn" id="themeBtn" title="Đổi giao diện sáng/tối">◐</button>
                 </div>
@@ -1253,7 +1253,7 @@
         const unb64 = s => Uint8Array.from(atob(s), ch => ch.charCodeAt(0));
 
         async function api(path, body) {
-            const r = await fetch('api/' + path, {
+            const r = await fetch((state.apiBase || '') + 'api/' + path, {
                 method: body ? 'POST' : 'GET',
                 headers: { 'Content-Type': 'application/json', 'X-Token': state.token || '' },
                 body: body ? JSON.stringify(body) : undefined,
@@ -1263,10 +1263,31 @@
             return d;
         }
 
-        (async () => {
-            if (location.protocol === 'file:') return;
+        // Trang tĩnh (GitHub) kết nối tới máy chủ LAN đã lưu; trang mở từ máy chủ dùng chính máy chủ đó
+        const savedServer = () => { try { return localStorage.getItem('lanchat-server') || ''; } catch (e) { return ''; } };
+        const serverHost = () => state.apiBase ? new URL(state.apiBase).host : location.host;
+        const serverBase = host => `https://${/:\d+$/.test(host) ? host : host + ':8443'}/`;
+        async function probe(base) {
+            const ctl = new AbortController();
+            const t = setTimeout(() => ctl.abort(), 5000);
             try {
-                const health = await api('health');
+                const r = await fetch(base + 'api/health', { signal: ctl.signal, cache: 'no-store' });
+                if (!r.ok) throw new Error();
+                return await r.json();
+            } finally { clearTimeout(t); }
+        }
+
+        (async () => {
+            let health = null;
+            if (location.protocol !== 'file:') health = await probe('').catch(() => null);
+            if (!health && savedServer() && location.protocol === 'https:') {
+                const base = serverBase(savedServer());
+                health = await probe(base).catch(() => null);
+                if (health) state.apiBase = base;
+                else $('#serverNote').textContent = `⚠ Không kết nối được máy chủ ${savedServer()}. Bấm "Kết nối máy chủ LAN" để thử lại.`;
+            }
+            try {
+                if (!health) throw new Error('demo');
                 state.server = true;
                 state.lanIp = health.ip;
                 state.lanPort = health.port;
@@ -1278,7 +1299,9 @@
                 $('#fName').value = '';
                 $('#fPass').value = '';
                 updateHash();
-                $('#serverNote').textContent = '🟢 Đã kết nối máy chủ LAN. Tài khoản và tin nhắn dùng được trên mọi máy trong mạng.';
+                $('#serverNote').textContent = state.apiBase
+                    ? `🟢 Đã kết nối máy chủ LAN ${new URL(state.apiBase).host}. Tài khoản và tin nhắn dùng được trên mọi máy trong mạng.`
+                    : '🟢 Đã kết nối máy chủ LAN. Tài khoản và tin nhắn dùng được trên mọi máy trong mạng.';
             } catch (e) { }
         })();
 
@@ -1478,7 +1501,7 @@
             $('#reqBadge').classList.toggle('hidden', !s.incoming.length);
             $('#sThird').textContent = s.incoming.length;
             $('#sFourth').textContent = s.total;
-            $('#netLabel').textContent = `Máy chủ LAN · ${s.total} tài khoản`;
+            $('#netLabel').textContent = `Máy chủ LAN ${serverHost()} · ${s.total} tài khoản`;
         }
 
         function friendSearchModal() {
@@ -1517,7 +1540,7 @@
         // Mã là một đường dẫn: quét bằng app hoặc camera điện thoại đều mở đúng chỗ kết bạn
         function friendLink() {
             const local = ['localhost', '127.0.0.1'].includes(location.hostname);
-            const host = local ? `${state.lanIp}:${state.lanPort}` : location.host;
+            const host = state.apiBase ? new URL(state.apiBase).host : local ? `${state.lanIp}:${state.lanPort}` : location.host;
             return `https://${host}/#add=${state.code}`;
         }
 
@@ -1765,7 +1788,7 @@
             modal('Chứng thư gốc (Root CA)', `
                 <p style="font-size:.85rem">Khi Root CA được thêm vào kho tin cậy, máy này sẽ tin các chứng chỉ HTTPS do nó ký. Trình duyệt hết cảnh báo NET::ERR_CERT_AUTHORITY_INVALID và có thể phát hiện máy khác giả mạo máy chủ này.</p>
                 <div class="ca-status" id="caStatus" style="margin:.6rem 0">Đang kiểm tra…</div>
-                <a class="btn primary block" href="ca.crt" download="LAN-Chat-CA.crt">⬇ Tải chứng thư gốc</a>
+                <a class="btn primary block" href="${state.apiBase || ''}ca.crt" download="LAN-Chat-CA.crt">⬇ Tải chứng thư gốc</a>
                 <div class="tabs" id="caTabs" style="margin-top:.8rem">${Object.keys(CA_GUIDES).map(k => `<button type="button" data-os="${k}">${k}</button>`).join('')}</div>
                 <ol class="ca-steps" id="caSteps"></ol>
                 <dl class="kv" style="margin-top:.8rem">
@@ -1801,14 +1824,31 @@
                 <div class="field" style="margin-top:.7rem"><label for="srvAddr">Địa chỉ máy chủ</label>
                     <input class="input mono" id="srvAddr" placeholder="192.168.1.10" value="${esc(last)}">
                     <small>Xem địa chỉ ở máy chạy máy chủ: mục Danh bạ, nút "QR của tôi". Hai máy phải dùng chung mạng Wi‑Fi.</small></div>
-                <p class="muted" style="font-size:.78rem">Lần đầu mở, trình duyệt có thể cảnh báo bảo mật. Chọn Nâng cao rồi Tiếp tục, hoặc cài chứng thư gốc của máy chủ.</p>`,
+                <p class="muted" id="srvHelp" style="font-size:.78rem">Lần đầu kết nối, trình duyệt có thể cảnh báo bảo mật hoặc hỏi quyền truy cập mạng nội bộ. Chọn Tiếp tục và Cho phép.</p>`,
                 `<button class="btn" data-close>Hủy</button><button class="btn primary" id="srvGo">Mở app trên máy chủ</button>`);
-            $('#srvGo').onclick = () => {
-                let v = $('#srvAddr').value.trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+            $('#srvGo').onclick = async () => {
+                const v = $('#srvAddr').value.trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
                 if (!v) return toast('Hãy nhập địa chỉ máy chủ');
-                if (!/:\d+$/.test(v)) v += ':8443';
-                try { localStorage.setItem('lanchat-server', v.replace(/:8443$/, '')); } catch (e) { }
-                location.href = `https://${v}/`;
+                const base = serverBase(v);
+                if (location.protocol !== 'https:') { location.href = base; return; }
+                $('#srvGo').disabled = true;
+                $('#srvGo').textContent = 'Đang kết nối…';
+                const ok = await probe(base).then(() => true, () => false);
+                if (ok) {
+                    try { localStorage.setItem('lanchat-server', v); } catch (e) { }
+                    toast('🟢 Đã kết nối máy chủ. Hãy đăng ký hoặc đăng nhập');
+                    setTimeout(() => location.reload(), 600);
+                    return;
+                }
+                $('#srvGo').disabled = false;
+                $('#srvGo').textContent = 'Thử lại';
+                $('#srvHelp').innerHTML = `Chưa kết nối được tới <b class="mono">${esc(v)}</b>. Hãy làm lần lượt:
+                    <ol class="pair-steps" style="margin-top:.3rem">
+                        <li>Kiểm tra máy chủ đang chạy và hai máy chung mạng Wi‑Fi.</li>
+                        <li><a href="${esc(base)}" target="_blank" rel="noopener">Mở ${esc(base)}</a> ở tab mới. Nếu có cảnh báo bảo mật, chọn Nâng cao rồi Tiếp tục.</li>
+                        <li>Quay lại tab này, bấm Thử lại. Nếu trình duyệt hỏi quyền truy cập thiết bị trong mạng nội bộ, chọn Cho phép.</li>
+                    </ol>
+                    Hoặc <a href="${esc(base)}">mở thẳng app trên máy chủ</a>.`;
             };
             $('#srvAddr').focus();
         }
@@ -1834,7 +1874,7 @@
                 d = await api('pair/create', { blob: { iv: b64(iv), ct: b64(ct) } });
             } catch (e) { toast(e.message); return; }
             const local = ['localhost', '127.0.0.1'].includes(location.hostname);
-            const host = local ? `${state.lanIp}:${state.lanPort}` : location.host;
+            const host = state.apiBase ? new URL(state.apiBase).host : local ? `${state.lanIp}:${state.lanPort}` : location.host;
             const qr = qrcode(0, 'M');
             qr.addData(`https://${host}/#pair=${d.token}.${b64url(raw)}`);
             qr.make();
@@ -2064,6 +2104,8 @@
             $('#socialPanel').classList.remove('hidden');
             $('#pairBtn').classList.remove('hidden');
             $('#demoBar').classList.add('hidden');
+            $('#netDot').className = 'dot on';
+            $('#netLabel').textContent = 'Máy chủ LAN ' + serverHost();
             $('#caCard').classList.remove('hidden');
             $('#syncBtn').classList.remove('hidden');
             $('#scanBtn').onclick = scanModal;
