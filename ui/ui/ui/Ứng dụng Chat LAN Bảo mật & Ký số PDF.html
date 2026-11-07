@@ -987,7 +987,7 @@
             for (const c of state.contacts) c.fp = await sha256(c.name + c.ip);
         }
 
-        function fmtFp(fp) { return fp.slice(0, 32).match(/.{2}/g).join(':').toUpperCase(); }
+        function fmtFp(fp) { return (fp || '').slice(0, 32).match(/.{2}/g)?.join(':').toUpperCase() || '—'; }
 
         async function enterApp() {
             $('#loginScreen').classList.add('hidden');
@@ -1730,25 +1730,61 @@
             }
             if (state.server) {
                 const code = parseFriendCode(text);
-                if (code) onFriendCode(code);
-                return !!code;
+                if (!code) {
+                    if (parseDemoCode(text)) {
+                        stopScan();
+                        modal('Mã QR của bản minh họa', `<p style="font-size:.86rem">Mã này được tạo ở bản minh họa, không gắn với tài khoản nào trên máy chủ nên không kết bạn được.</p>
+                            <p class="muted" style="font-size:.84rem">Hãy nhờ người kia mở app qua máy chủ <b class="mono">${esc(serverHost())}</b>, đăng nhập rồi đưa lại mã "QR của tôi".</p>`,
+                            `<button class="btn primary" data-close>Đã hiểu</button>`);
+                        return true;
+                    }
+                    return false;
+                }
+                const linkHost = (text.match(/^https:\/\/([^\s/#]+)\//) || [])[1];
+                const here = state.apiBase ? new URL(state.apiBase).host : location.host;
+                const sameServer = !linkHost || linkHost === here
+                    || (['localhost', '127.0.0.1'].includes(location.hostname) && linkHost === `${state.lanIp}:${state.lanPort}`);
+                if (sameServer) { onFriendCode(code); return true; }
+                stopScan();
+                modal('Mã kết bạn của máy chủ khác', `<p style="font-size:.86rem">Mã QR này thuộc máy chủ <b class="mono">${esc(linkHost)}</b>, còn bạn đang dùng máy chủ <b class="mono">${esc(serverHost())}</b>.</p>
+                    <p class="muted" style="font-size:.84rem">Tài khoản và bạn bè ở hai máy chủ tách riêng nhau. Muốn kết bạn với người này, bạn cần chuyển sang máy chủ của họ và đăng ký hoặc đăng nhập ở đó.</p>`,
+                    `<button class="btn" data-close>Ở lại máy chủ này</button><button class="btn primary" id="switchSrv">Chuyển sang máy chủ ${esc(linkHost)}</button>`);
+                $('#switchSrv').onclick = () => {
+                    try { localStorage.setItem('lanchat-server', linkHost.replace(/:8443$/, '')); } catch (e) { }
+                    location.href = text;
+                };
+                return true;
             }
             const serverLink = (text.match(/^https:\/\/[^\s/#]+\/#add=[\w-]+$/) || [])[0];
             if (serverLink) {
                 stopScan();
                 const host = serverLink.split('/')[2];
-                modal('Mã kết bạn của máy chủ LAN', `<p style="font-size:.86rem">Mã QR này thuộc máy chủ <b class="mono">${esc(host)}</b>. Bạn đang ở bản minh họa nên chưa gửi lời mời được.</p>
-                    <p class="muted" style="font-size:.84rem">Bấm nút dưới để mở app trên máy chủ đó, đăng ký hoặc đăng nhập, rồi lời mời kết bạn sẽ được gửi tiếp.</p>`,
-                    `<button class="btn" data-close>Để sau</button><a class="btn primary" href="${esc(serverLink)}">Mở app và kết bạn</a>`);
+                modal('Mã kết bạn của máy chủ LAN', `<p style="font-size:.86rem">Mã QR này thuộc máy chủ <b class="mono">${esc(host)}</b>. Bạn đang ở bản minh họa, cần vào cùng máy chủ đó thì mới gửi lời mời được.</p>
+                    <div class="muted" id="fqDiag" style="font-size:.84rem">Đang kiểm tra kết nối tới máy chủ…</div>`,
+                    `<button class="btn" data-close>Để sau</button><button class="btn primary" id="fqGo" disabled>Chuyển sang máy chủ và kết bạn</button>`);
+                const base = `https://${host}/`;
+                diagnose(base).then(d => {
+                    if (!$('#fqDiag')) return;
+                    $('#fqGo').disabled = false;
+                    $('#fqDiag').innerHTML = d.ok ? `🟢 Máy chủ đang hoạt động. Bấm nút dưới, đăng ký hoặc đăng nhập, rồi lời mời kết bạn sẽ được gửi tiếp.`
+                        : diagnosisHtml(base, d.kind);
+                    if (!d.ok) $('#fqGo').textContent = 'Vẫn thử mở máy chủ';
+                });
+                $('#fqGo').onclick = () => {
+                    try { localStorage.setItem('lanchat-server', host.replace(/:8443$/, '')); } catch (e) { }
+                    location.href = serverLink;
+                };
                 return true;
             }
             const name = parseDemoCode(text);
             if (!name) return false;
             stopScan();
-            closeModal();
-            if (name === state.user) toast('Đây là mã QR của chính bạn');
-            else if (state.contacts.some(c => c.name === name)) toast(`${name} đã có trong danh bạ`);
-            else addContact(name, 'Quét mã QR');
+            if (name === state.user) { closeModal(); toast('Đây là mã QR của chính bạn'); return true; }
+            if (state.contacts.some(c => c.name === name)) { closeModal(); toast(`${name} đã có trong danh bạ trên máy này`); return true; }
+            modal('Chưa kết nối máy chủ', `<p style="font-size:.86rem">⚠ Bạn và <b>${esc(name)}</b> đang ở bản minh họa, chưa kết nối máy chủ LAN. <b>Tin nhắn sẽ không gửi được</b> tới máy của người này.</p>
+                <p class="muted" style="font-size:.84rem">Để kết bạn và trò chuyện thật, máy chạy máy chủ bấm "Chia sẻ máy chủ", các máy khác quét mã đó, rồi mới dùng "QR của tôi" để kết bạn.</p>`,
+                `<button class="btn" id="demoAddAnyway">Chỉ thêm vào danh bạ trên máy này</button><button class="btn primary" data-connect>🔌 Kết nối máy chủ LAN</button>`);
+            $('#demoAddAnyway').onclick = () => { closeModal(); addContact(name, 'Chỉ trên máy này (minh họa)'); };
             return true;
         }
 
@@ -2015,6 +2051,34 @@
             } else $('#demoBar').classList.remove('hidden');
         }
 
+        // ============ Chẩn đoán lỗi kết nối máy chủ ============
+        // Trình duyệt không cho biết lý do cụ thể, nên phân biệt theo thời gian: lỗi ngay lập tức là có máy trả lời
+        // nhưng từ chối (chứng chỉ chưa tin cậy hoặc máy chủ chưa bật); chờ hết giờ là không tới được máy đó.
+        async function diagnose(base) {
+            const t0 = Date.now();
+            try { await probe(base, 6000); return { ok: true }; }
+            catch (e) { return { ok: false, kind: e.name === 'AbortError' || Date.now() - t0 > 5500 ? 'unreachable' : 'refused' }; }
+        }
+        function diagnosisHtml(base, kind) {
+            const host = new URL(base).host;
+            const certBtn = `<a class="btn sm" href="${esc(base)}" target="_blank" rel="noopener">Mở ${esc(host)} ở tab mới</a>`;
+            const caBtn = `<a class="btn sm" href="${esc(base)}#root-ca" target="_blank" rel="noopener">Cài chứng thư gốc</a>`;
+            return kind === 'unreachable'
+                ? `<b>Không tới được máy ${esc(host)}.</b> Thường do:
+                    <ol class="pair-steps" style="margin-top:.3rem">
+                        <li>Hai máy <b>không cùng mạng Wi‑Fi</b>, hoặc Wi‑Fi đang chặn các máy nhìn thấy nhau (Wi‑Fi khách, công cộng). Thử phát Wi‑Fi từ điện thoại cho cả hai máy.</li>
+                        <li><b>Tường lửa</b> trên máy chủ chặn cổng 8443: chạy <span class="mono">cai-dat-may-chu.bat</span> trên máy chủ.</li>
+                        <li>Máy chủ đã tắt hoặc đổi địa chỉ IP: xem lại IP bằng nút "Chia sẻ máy chủ" trên máy đó.</li>
+                    </ol>`
+                : `<b>Máy ${esc(host)} có trả lời nhưng trình duyệt chưa kết nối được.</b> Thường do:
+                    <ol class="pair-steps" style="margin-top:.3rem">
+                        <li><b>Chứng chỉ HTTPS chưa được tin cậy:</b> mở địa chỉ máy chủ ở tab mới, chọn Nâng cao rồi Tiếp tục, hoặc cài chứng thư gốc. Sau đó quay lại bấm Thử lại.</li>
+                        <li><b>Máy chủ chưa bật</b> trên máy đó: bấm đúp <span class="mono">chay-may-chu.bat</span>.</li>
+                        <li>Trình duyệt hỏi quyền truy cập thiết bị trong mạng nội bộ: chọn Cho phép.</li>
+                    </ol>
+                    <div style="display:flex;gap:.4rem;flex-wrap:wrap;margin-top:.4rem">${certBtn}${caBtn}</div>`;
+        }
+
         // ============ Trạng thái kết nối, tự kết nối lại, tự tìm máy chủ ============
         function netStatus(kind, text, showRetry = false) {
             $('#netDot').className = 'dot ' + (kind === 'on' ? 'on' : kind === 'busy' ? 'busy' : 'down');
@@ -2136,8 +2200,8 @@
                 if (location.protocol !== 'https:') { location.href = base; return; }
                 $('#srvGo').disabled = true;
                 $('#srvGo').textContent = 'Đang kết nối…';
-                const ok = await probe(base).then(() => true, () => false);
-                if (ok) {
+                const diag = await diagnose(base);
+                if (diag.ok) {
                     try { localStorage.setItem('lanchat-server', v); } catch (e) { }
                     toast('🟢 Đã kết nối máy chủ. Hãy đăng ký hoặc đăng nhập');
                     setTimeout(() => location.reload(), 600);
@@ -2145,13 +2209,7 @@
                 }
                 $('#srvGo').disabled = false;
                 $('#srvGo').textContent = 'Thử lại';
-                $('#srvHelp').innerHTML = `Chưa kết nối được tới <b class="mono">${esc(v)}</b>. Hãy làm lần lượt:
-                    <ol class="pair-steps" style="margin-top:.3rem">
-                        <li>Kiểm tra máy chủ đang chạy và hai máy chung mạng Wi‑Fi.</li>
-                        <li><a href="${esc(base)}" target="_blank" rel="noopener">Mở ${esc(base)}</a> ở tab mới. Nếu có cảnh báo bảo mật, chọn Nâng cao rồi Tiếp tục.</li>
-                        <li>Quay lại tab này, bấm Thử lại. Nếu trình duyệt hỏi quyền truy cập thiết bị trong mạng nội bộ, chọn Cho phép.</li>
-                    </ol>
-                    Hoặc <a href="${esc(base)}">mở thẳng app trên máy chủ</a>.`;
+                $('#srvHelp').innerHTML = diagnosisHtml(base, diag.kind) + ` <p style="margin-top:.4rem">Hoặc <a href="${esc(base)}">mở thẳng app trên máy chủ</a>.</p>`;
             };
             $('#srvAddr').focus();
         }
@@ -2818,6 +2876,7 @@
             modal('Mã QR của tôi', `${img}
                 <p style="text-align:center"><b>${esc(state.user)}</b></p>
                 <p class="muted" style="text-align:center;font-size:.8rem">Người khác bấm Quét QR trong app, hoặc quét bằng camera điện thoại để mở app và thêm bạn vào danh bạ.</p>
+                <p style="text-align:center;font-size:.8rem;color:var(--amber)">⚠ Đây là mã của bản minh họa: quét xong chỉ thêm tên vào danh bạ, chưa nhắn tin được. Kết nối máy chủ LAN để có mã kết bạn thật.</p>
                 <p class="muted" style="text-align:center;font-size:.76rem">Vân tay: <span class="mono">${fmtFp(state.fingerprint)}</span></p>`);
             if (!window.qrcode) drawQr($('#qrCanvas'), state.fingerprint);
         };
