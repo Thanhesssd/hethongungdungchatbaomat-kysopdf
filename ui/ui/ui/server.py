@@ -54,6 +54,8 @@ class Store:
         self.signups = {}
         self.pairs = {}
         self.last_seen = {}
+        self.delivered = {}  # ID tài khoản -> seq tin cuối cùng máy đó đã xác nhận nhận được
+        self.rseq = 0  # tăng mỗi khi có xác nhận mới, để đánh thức máy gửi đang chờ
         if os.path.exists(DB_PATH):
             with open(DB_PATH, encoding="utf-8") as f:
                 db = json.load(f)
@@ -64,13 +66,15 @@ class Store:
             self.friends = {tuple(p) for p in db.get("friends", [])}
             self.requests = {tuple(p) for p in db.get("requests", [])}
             self.sessions = {k: tuple(v) for k, v in db.get("sessions", {}).items() if v[1] > time.time()}
+            self.delivered = {int(k): v for k, v in db.get("delivered", {}).items()}
 
     def save(self):
         os.makedirs(DATA_DIR, exist_ok=True)
         tmp = DB_PATH + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump({"users": self.users, "groups": self.groups, "messages": self.messages, "seq": self.seq,
-                       "friends": sorted(self.friends), "requests": sorted(self.requests), "sessions": self.sessions}, f)
+                       "friends": sorted(self.friends), "requests": sorted(self.requests), "sessions": self.sessions,
+                       "delivered": self.delivered}, f)
         os.replace(tmp, DB_PATH)
 
     def bump(self):
@@ -226,7 +230,7 @@ class Handler(BaseHTTPRequestHandler):
                   "/api/send": self.handle_send, "/api/group": self.handle_group,
                   "/api/group/add": self.handle_group_add, "/api/group/leave": self.handle_group_leave,
                   "/api/friend": self.handle_friend, "/api/friend/scan": self.handle_friend_scan,
-                  "/api/friend/code": self.handle_friend_code, "/api/logout": self.handle_logout,
+                  "/api/friend/code": self.handle_friend_code, "/api/logout": self.handle_logout, "/api/ack": self.handle_ack,
                   "/api/pair/create": self.handle_pair_create, "/api/pair/claim": self.handle_pair_claim}
         route = routes.get(urlparse(self.path).path)
         if not route:
@@ -324,6 +328,20 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json({"error": "Không tìm thấy mã kết nối"}, 404)
         self.send_json({"device": pair_info["device"], "left": max(0, int(pair_info["exp"] - time.time()))})
 
+    def handle_ack(self, body):
+        """Máy nhận báo đã nhận và giải mã xong tới tin số seq; máy chủ báo lại cho máy gửi."""
+        uid = self.current_user()
+        if not uid:
+            return self.send_json({"error": "Phiên đăng nhập đã hết hạn"}, 401)
+        seq = int(body["seq"])
+        with self.store.cond:
+            if seq > self.store.delivered.get(uid, 0):
+                self.store.delivered[uid] = min(seq, self.store.seq)
+                self.store.rseq += 1
+                self.store.save()
+                self.store.cond.notify_all()
+        self.send_json({"ok": True})
+
     def handle_logout(self, body):
         key = hashlib.sha256(self.headers.get("X-Token", "").encode()).hexdigest()
         with self.store.cond:
@@ -409,12 +427,13 @@ class Handler(BaseHTTPRequestHandler):
         if not uid:
             return self.send_json({"error": "Phiên đăng nhập đã hết hạn"}, 401)
         since = int(query.get("since", ["0"])[0])
+        rsince = int(query.get("rsince", ["-1"])[0])
         wait = query.get("wait", ["1"])[0] == "1"
         store = self.store
         store.last_seen[uid] = time.time()
         with store.cond:
             if wait:
-                store.cond.wait_for(lambda: store.seq > since, timeout=20)
+                store.cond.wait_for(lambda: store.seq > since or store.rseq > rsince, timeout=20)
             store.last_seen[uid] = time.time()
             my_groups = [g for g in store.groups.values() if uid in g["members"]]
             group_ids = {g["id"] for g in my_groups}
@@ -427,7 +446,8 @@ class Handler(BaseHTTPRequestHandler):
             pending = {f for f, t in store.requests if t == uid} | {t for f, t in store.requests if f == uid}
             others = [i for i in store.users if i != uid and i not in friends and i not in pending]
             others.sort(key=lambda i: (-len(friends & store.friends_of(i)), store.users[i]["name"].lower()))
-            data = {"seq": store.seq, "groups": my_groups, "messages": messages, "total": len(store.users),
+            data = {"seq": store.seq, "rseq": store.rseq, "groups": my_groups, "messages": messages, "total": len(store.users),
+                    "receipts": {i: store.delivered.get(i, 0) for i in people},
                     "users": [{**public_user(store, store.users[i]), "friend": i in friends} for i in people],
                     "incoming": [brief_user(store, f) for f, t in store.requests if t == uid],
                     "outgoing": [brief_user(store, t) for f, t in store.requests if f == uid],

@@ -1201,6 +1201,14 @@
         }
         $('#backBtn').onclick = () => $('#chatLayout').classList.remove('in-thread');
 
+        // ✓ máy chủ đã nhận tin; ✓✓ máy người nhận đã nhận và giải mã (ACK)
+        function tickFor(m) {
+            if (!m.seq || m.group) return '✓✓';
+            return (state.receipts?.[state.active] || 0) >= m.seq
+                ? '<span title="Người nhận đã nhận tin" style="color:var(--green)">✓✓ Đã nhận</span>'
+                : '<span title="Máy chủ đã lưu tin, chờ người nhận mở app">✓ Đã gửi</span>';
+        }
+
         function renderMsgs() {
             const list = state.chats[state.active] || [];
             const box = $('#msgs');
@@ -1220,7 +1228,7 @@
                         : `${m.who ? `<small class="who">${esc(m.who)}</small>` : ''}<div class="bubble">${esc(m.text)}</div>`;
                     return `<div class="msg ${m.dir}">${content}
                         ${m.cipher ? `<div class="cipher mono">AES‑256‑GCM: ${m.cipher.slice(0, 120)}…</div>` : ''}
-                        <div class="info">${msgTime(m)} · 🔒${m.dir === 'out' ? ' ✓✓' : ''}</div></div>`;
+                        <div class="info">${msgTime(m)} · 🔒${m.dir === 'out' ? ' ' + tickFor(m) : ''}</div></div>`;
                 }).join('');
             box.insertAdjacentHTML('beforeend', state.outbox.filter(m => m.cid === state.active).map(m => `<div class="msg out">
                 <div class="bubble" style="opacity:.6">${esc(m.text)}</div><div class="info">⏳ Chưa gửi được, sẽ tự gửi lại khi có mạng</div></div>`).join(''));
@@ -1480,6 +1488,7 @@
             }
             renderRequestPopups();
 
+            let gotIncoming = 0;
             for (const msg of d.messages) {
                 if (state.seen.has(msg.seq)) continue;
                 state.seen.add(msg.seq);
@@ -1490,11 +1499,18 @@
                 await addMsg(cid, {
                     dir: mine ? 'out' : 'in', text, cipher: msg.env.iv + '.' + msg.env.ct, ts: msg.ts,
                     time: new Date(msg.ts).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
-                    who: msg.group && !mine ? msg.fromName : undefined,
+                    who: msg.group && !mine ? msg.fromName : undefined, seq: msg.seq, group: !!msg.group,
                 });
+                if (!mine) gotIncoming = Math.max(gotIncoming, msg.seq);
                 if (!mine && !(state.active === cid && !$('#view-chat').classList.contains('hidden'))) state.unread[cid] = (state.unread[cid] || 0) + 1;
             }
             state.seq = Math.max(state.seq || 0, d.seq);
+            state.rseq = d.rseq;
+            const receiptsChanged = JSON.stringify(state.receipts || {}) !== JSON.stringify(d.receipts || {});
+            state.receipts = d.receipts || {};
+            // Báo máy chủ đã nhận tin, để máy gửi thấy ✓✓
+            if (gotIncoming) api('ack', { seq: gotIncoming }).catch(() => { });
+            if (receiptsChanged && !d.messages.length) renderMsgs();
             saveChats();
             renderConvs();
             renderContacts();
@@ -1503,13 +1519,13 @@
             if (!$('#view-profile').classList.contains('hidden')) renderProfile();
         }
 
-        const refresh = async () => applySync(await api(`sync?since=${state.seq || 0}&wait=0`));
+        const refresh = async () => applySync(await api(`sync?since=${state.seq || 0}&rsince=${state.rseq ?? -1}&wait=0`));
 
         async function syncLoop() {
             let wait = 0;
             while (true) {
                 try {
-                    await applySync(await api(`sync?since=${state.seq || 0}&wait=${wait}`));
+                    await applySync(await api(`sync?since=${state.seq || 0}&rsince=${state.rseq ?? -1}&wait=${wait}`));
                     wait = 1;
                     setConn(true);
                 } catch (e) {
