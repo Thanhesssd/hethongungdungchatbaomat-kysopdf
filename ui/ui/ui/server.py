@@ -309,7 +309,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_json({"ok": True})
 
     def handle_friend_scan(self, body):
-        """Người giữ mã QR đã chủ động đưa mã ra, nên quét đúng mã là thành bạn bè ngay."""
+        """Quét mã QR là gửi lời mời kết bạn; người được quét phải đồng ý. Nếu họ đã mời mình trước thì thành bạn bè luôn."""
         uid = self.current_user()
         if not uid:
             return self.send_json({"error": "Phiên đăng nhập đã hết hạn"}, 401)
@@ -320,9 +320,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json({"error": "Mã QR không đúng hoặc đã được đổi"}, 404)
             if other["id"] == uid:
                 return self.send_json({"error": "Đây là mã QR của chính bạn"}, 400)
-            if body.get("confirm"):
-                store.requests -= {(uid, other["id"]), (other["id"], uid)}
-                store.friends.add(pair(uid, other["id"]))
+            if body.get("confirm") and pair(uid, other["id"]) not in store.friends:
+                if (other["id"], uid) in store.requests:
+                    store.requests.discard((other["id"], uid))
+                    store.friends.add(pair(uid, other["id"]))
+                else:
+                    store.requests.add((uid, other["id"]))
                 store.bump()
             self.send_json({"id": other["id"], "name": other["name"], "relation": store.relation(uid, other["id"])})
 
