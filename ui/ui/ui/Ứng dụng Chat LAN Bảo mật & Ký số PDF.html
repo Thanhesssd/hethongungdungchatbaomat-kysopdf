@@ -284,6 +284,12 @@
         .kv dt { color: var(--muted); }
         .kv dd { word-break: break-all; }
         .empty { text-align: center; padding: 2.5rem 1rem; color: var(--muted); }
+        .empty-view { display: none; text-align: center; padding: 3rem 1rem; color: var(--muted); gap: .7rem; justify-items: center; align-content: start; }
+        .empty-view .big { font-size: 2.4rem; }
+        .empty-view b { color: var(--text); font-size: 1.05rem; }
+        .view.no-doc > :not(.empty-view) { display: none !important; }
+        .view.no-doc > .empty-view { display: grid; }
+        .chat.no-chat .composer, .chat.no-chat #tDot, .chat.no-chat .thread-h > div:last-child { display: none !important; }
         .empty div { font-size: 2rem; margin-bottom: .4rem; }
 
         /* ===== Tài khoản ===== */
@@ -626,6 +632,14 @@
 
             <!-- Ký số -->
             <div class="view hidden" id="view-sign">
+                <div class="empty-view">
+                    <span class="big">📄</span><b>Chưa có tài liệu nào</b>
+                    <span>Tải file PDF lên hoặc chụp giấy tờ bằng camera để bắt đầu ký số.</span>
+                    <div style="display:flex;gap:.5rem;flex-wrap:wrap;justify-content:center">
+                        <button class="btn primary" type="button" data-empty="upload">⬆ Tải PDF lên</button>
+                        <button class="btn" type="button" data-empty="capture">📷 Chụp tài liệu</button>
+                    </div>
+                </div>
                 <div class="sign">
                     <div class="thumbs" id="thumbs"></div>
                     <div class="stage">
@@ -683,6 +697,10 @@
 
             <!-- Kiểm tra chữ ký -->
             <div class="view pad hidden" id="view-verify">
+                <div class="empty-view">
+                    <span class="big">🛡️</span><b>Chưa có tài liệu để kiểm tra</b>
+                    <span>Sau khi bạn ký hoặc nhận tài liệu đã ký, thông tin chữ ký sẽ hiện ở đây.</span>
+                </div>
                 <div class="verify-banner" id="vBanner"></div>
                 <div class="verify-grid">
                     <div class="card">
@@ -896,6 +914,8 @@
             state.passHash = await sha256($('#fPass').value);
             state.user = name;
             state.isNew = mode === 'register';
+            // Tài khoản mới và mọi tài khoản trên máy chủ bắt đầu trống: danh bạ chỉ có người đã kết bạn
+            state.blank = state.server || mode === 'register';
             const acct = state.server ? name.toLowerCase() : name;
             state.histId = await sha256(acct + ':' + state.passHash);
             state.histKey = await deriveHistKey($('#fPass').value, acct);
@@ -956,7 +976,12 @@
                 $(id).style.background = colorOf(state.user);
             }
             const restored = await loadChats();
-            if (!restored) await seedChats();
+            if (state.blank) {
+                // Bỏ liên hệ mẫu; chỉ giữ người đã kết bạn (thêm qua QR hoặc từ máy chủ)
+                state.contacts = state.contacts.filter(c => c.real || c.group || c.id > 100);
+                if (!restored) { state.chats = {}; state.unread = {}; }
+                state.active = state.contacts[0]?.id ?? null;
+            } else if (!restored) await seedChats();
             renderConvs();
             openChat(state.active, true);
             if (restored) setTimeout(() => toast(`🔓 Đã khôi phục ${restored} tin nhắn từ lần trò chuyện trước`), 400);
@@ -964,7 +989,10 @@
             renderAccount();
             setupPad();
             setupMyPad();
-            await seedDocs();
+            if (state.blank) {
+                Object.assign(state, { docs: [], doc: null, history: [], mySig: null, docFilter: 'todo' });
+                clearPad();
+            } else await seedDocs();
             initSign();
             go('profile');
         }
@@ -993,12 +1021,15 @@
             $$('.view').forEach(v => v.classList.add('hidden'));
             $('#view-' + view).classList.remove('hidden');
             $('#viewTitle').textContent = TITLES[view];
-            if (view === 'verify') renderVerify();
-            if (view === 'sign') { renderPage(); renderSignPanel(); }
+            const noDoc = !doc() && (view === 'sign' || view === 'verify');
+            $('#view-' + view).classList.toggle('no-doc', noDoc);
+            if (view === 'verify' && !noDoc) renderVerify();
+            if (view === 'sign' && !noDoc) { renderPage(); renderSignPanel(); }
             if (view === 'profile') renderProfile();
             $('.view:not(.hidden)').scrollTop = 0;
         }
         $$('#nav button').forEach(b => b.onclick = () => go(b.dataset.view));
+        $$('[data-empty]').forEach(b => b.onclick = () => b.dataset.empty === 'upload' ? $('#pdfUpload').click() : captureModal());
 
         // ============ Tin nhắn ============
         async function encryptText(text) {
@@ -1031,7 +1062,7 @@
             saveTimer = setTimeout(async () => {
                 const data = {
                     chats: state.chats, unread: state.unread,
-                    extraContacts: state.contacts.filter(c => c.id > 100 && !c.real && !c.group), mem: state.mem || {}, seq: state.seq || 0,
+                    extraContacts: state.contacts.filter(c => c.id > 100 && !c.real && !c.group), mem: state.mem || {}, seq: state.seq || 0, blank: !!state.blank,
                 };
                 const iv = crypto.getRandomValues(new Uint8Array(12));
                 const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, state.histKey, enc.encode(JSON.stringify(data)));
@@ -1051,6 +1082,7 @@
                 for (const c of data.extraContacts || []) if (!state.contacts.some(x => x.id === c.id)) state.contacts.push(c);
                 state.chats = data.chats || {};
                 state.unread = data.unread || {}; state.mem = data.mem || {}; state.seq = data.seq || 0;
+                if (data.blank) state.blank = true;
                 return Object.values(state.chats).reduce((a, l) => a + l.length, 0);
             } catch (e) { return 0; }
         }
@@ -1106,7 +1138,7 @@
                         <div class="row"><b>${esc(c.name)}</b><small>${(state.chats[c.id] || []).at(-1)?.time || ''}</small></div>
                         <div class="row"><p>${esc(lastPreview(c.id))}</p>${state.unread[c.id] ? `<span class="chip">${state.unread[c.id]}</span>` : ''}</div>
                     </div>
-                </div>`).join('');
+                </div>`).join('') || '<div class="soc-empty">Chưa có cuộc trò chuyện nào. Hãy kết bạn để bắt đầu.</div>';
             $$('.conv').forEach(el => el.onclick = () => openChat(+el.dataset.id));
             const total = Object.values(state.unread).reduce((a, b) => a + b, 0);
             $('#unread').textContent = total;
@@ -1115,6 +1147,19 @@
         $('#convSearch').oninput = renderConvs;
 
         function openChat(id, initial) {
+            const found = state.contacts.find(x => x.id === id);
+            $('#chatLayout').classList.toggle('no-chat', !found);
+            if (!found) {
+                state.active = null;
+                $('#tAvatar').textContent = '?';
+                $('#tAvatar').style.background = 'var(--muted)';
+                $('#tName').textContent = 'Chưa có cuộc trò chuyện';
+                $('#tInfo').textContent = 'Kết bạn để bắt đầu nhắn tin bảo mật';
+                $('#groupInfoBtn').classList.add('hidden');
+                renderConvs();
+                renderMsgs();
+                return;
+            }
             state.active = id;
             delete state.unread[id];
             saveChats();
@@ -1135,6 +1180,12 @@
         function renderMsgs() {
             const list = state.chats[state.active] || [];
             const box = $('#msgs');
+            if (state.active == null) {
+                box.innerHTML = `<div class="empty"><div>💬</div><b>Danh bạ của bạn đang trống</b><br>Kết bạn bằng mã QR hoặc tìm theo tên để bắt đầu trò chuyện.<br><br>
+                    <button class="btn primary" type="button" id="emptyFriend">👥 Đến Danh bạ để kết bạn</button></div>`;
+                $('#emptyFriend').onclick = () => go('contacts');
+                return;
+            }
             box.classList.toggle('show-cipher', state.showCipher);
             box.innerHTML = `<div class="e2e-banner">🔒 Tin nhắn được mã hóa end‑to‑end. Chỉ bạn và người nhận đọc được.</div>` +
                 list.map((m, i) => {
@@ -1162,6 +1213,7 @@
             $('#msgInput').value = '';
             const cid = state.active;
             const c = state.contacts.find(x => x.id === cid);
+            if (!c) return;
             if (c.real || c.group) {
                 try { await sendReal(c, text); } catch (err) { toast(err.message); $('#msgInput').value = text; }
                 return;
@@ -1296,7 +1348,7 @@
             const friends = new Set(d.users.filter(u => u.friend).map(u => u.id));
             const groups = new Set(d.groups.map(g => g.id));
             state.contacts = state.contacts.filter(c => (!c.real || friends.has(c.id)) && (!c.group || groups.has(c.id)));
-            if (!state.contacts.some(c => c.id === state.active)) openChat(state.contacts[0].id, true);
+            if (!state.contacts.some(c => c.id === state.active)) openChat(state.contacts[0]?.id, true);
 
             const known = state.social ? new Set(state.social.incoming.map(u => u.id)) : null;
             state.social = d;
@@ -1753,7 +1805,7 @@
                 };
                 await publishKeys();
                 Object.assign(state, { token: d.token, me: d.id, user: d.name, code: d.code, people: {}, seen: new Set(),
-                    passHash: '(đăng nhập bằng mã QR từ máy tính)', isNew: false, histKey: null });
+                    passHash: '(đăng nhập bằng mã QR từ máy tính)', isNew: false, histKey: null, blank: true });
             } catch (err) {
                 regResult(false, err.name === 'OperationError' ? 'Mã QR bị hỏng hoặc thiếu. Hãy quét lại mã mới trên máy tính.' : regError(err), '#fName');
                 return;
@@ -2253,6 +2305,7 @@
         }
 
         $('#sendPdfBtn').onclick = async () => {
+            if (!doc()) { toast('Chưa có tài liệu. Hãy tải PDF lên hoặc chụp tài liệu trước'); return; }
             const n = doc().signatures.length;
             await addMsg(state.active, { dir: 'out', file: doc().name, note: n ? `Đã ký bởi ${n} người · Toàn vẹn` : 'Chưa có chữ ký' });
             renderMsgs(); renderConvs();
@@ -2294,6 +2347,8 @@
         async function addContact(name, ip) {
             const c = { id: Date.now(), name, role: 'Liên hệ mới', ip, status: 'on', fp: await sha256(name + ip) };
             state.contacts.push(c);
+            if (state.active == null) openChat(c.id, true);
+            saveChats();
             renderContacts(); renderConvs();
             toast(`Đã thêm ${name} vào danh bạ`);
         }
@@ -2376,6 +2431,7 @@
         const pad = () => $('#pad');
 
         function initSign() {
+            if (!doc()) return;
             loadSignerSig();
             renderPage();
             renderSignPanel();
@@ -2803,7 +2859,7 @@
                     <div class="av-wrap">${avatarHtml(c.name)}<span class="dot ${c.status}"></span></div>
                     <div class="meta"><b style="font-size:.84rem">${esc(c.name)}</b><p>🔓 ${esc(lastPreview(c.id))}</p></div>
                     ${state.unread[c.id] ? `<span class="chip">${state.unread[c.id]}</span>` : ''}
-                </div>`).join('');
+                </div>`).join('') || '<div class="soc-empty">Chưa có bạn bè. Bấm Quét QR hoặc vào Danh bạ để kết bạn.</div>';
             $$('.mini-conv').forEach(el => el.onclick = () => { go('chat'); openChat(+el.dataset.c); });
             const online = state.contacts.filter(c => c.status === 'on');
             $('#pAvs').innerHTML = state.contacts.slice(0, 5).map(c => avatarHtml(c.name)).join('');
@@ -2833,7 +2889,7 @@
             $$('[data-doc]').forEach(b => b.onclick = () => openDoc(+b.dataset.doc));
             $$('[data-verify]').forEach(b => b.onclick = () => openDoc(+b.dataset.verify, 'verify'));
 
-            $('#histList').innerHTML = state.history.slice(0, 7).map(h => `
+            $('#histList').innerHTML = (state.history.length ? '' : '<li class="muted">Chưa có hoạt động ký số nào.</li>') + state.history.slice(0, 7).map(h => `
                 <li><span class="h-ico">${h.icon}</span><div><b style="font-weight:600">${esc(h.text)}</b><small>${esc(h.doc)} · ${h.time}</small></div></li>`).join('');
         }
 
@@ -2912,7 +2968,7 @@
         $('#mySave').onclick = () => {
             state.mySig = myPad().toDataURL('image/png');
             addHistory('🖊️', 'Cập nhật chữ ký đồ họa', 'Hồ sơ cá nhân');
-            if (doc().signerIdx === 0) loadSignerSig();
+            if (doc()?.signerIdx === 0) loadSignerSig();
             renderProfile();
             toast('Đã lưu chữ ký đồ họa');
         };
