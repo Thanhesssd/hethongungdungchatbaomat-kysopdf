@@ -36,6 +36,7 @@
                 <li><a href="#workflow">Ký nối tiếp</a></li>
                 <li><a href="#security">Bảo mật</a></li>
                 <li><a href="#friends">Kết bạn</a></li>
+                <li><a href="#host">Máy chủ</a></li>
                 <li><a href="#network">Wi‑Fi/4G</a></li>
                 <li><a href="#devices">Quét QR & thiết bị</a></li>
                 <li><a href="#root-ca">Root CA</a></li>
@@ -358,6 +359,37 @@
                     <h3>Đồng bộ tin nhắn hai chiều</h3>
                     <p>A gửi thì B nhận ngay, B trả lời thì A nhận ngay; tin được mã hóa đầu cuối và truyền qua máy chủ trong mạng LAN. Máy chủ giữ tin theo đúng thứ tự, nên người đang offline vẫn nhận đủ khi mở lại app và hai bên luôn thấy cùng một cuộc trò chuyện. Không có tin trả lời tự động.</p>
                     <ul class="tags"><li>E2E</li><li>Đồng bộ đa thiết bị</li></ul>
+                </article>
+            </div>
+        </div>
+    </section>
+
+    <!-- Máy chủ và máy khách -->
+    <section id="host" class="section alt">
+        <div class="container">
+            <div class="section-header">
+                <span class="eyebrow">Máy A · Máy B</span>
+                <h2>Một máy làm máy chủ, các máy khác kết nối vào</h2>
+                <p>Trình duyệt không mở được cổng máy chủ, nên máy A chạy chương trình máy chủ <code>server.py</code> trên máy tính. Các máy còn lại chỉ cần trình duyệt.</p>
+            </div>
+            <div class="features-grid">
+                <article class="feature-card reveal">
+                    <div class="feature-icon">🖥️</div>
+                    <h3>Máy A: chế độ máy chủ</h3>
+                    <p>Cài một lần bằng <code>cai-dat-may-chu.bat</code>: máy chủ tự chạy ngầm mỗi khi bật máy. Mở app, góc trên hiện IP của máy; nút Chia sẻ máy chủ cho IP, mã QR và link mời. Máy chủ giữ tài khoản, danh bạ, lời mời kết bạn và tin nhắn đã mã hóa.</p>
+                    <ul class="tags"><li>server.py</li><li>Tự chạy ngầm</li><li>Hiện IP</li></ul>
+                </article>
+                <article class="feature-card reveal">
+                    <div class="feature-icon">📱</div>
+                    <h3>Máy B: chế độ máy khách</h3>
+                    <p>Mở link GitHub này, bấm Kết nối máy chủ LAN và nhập IP của máy A; hoặc quét mã QR, bấm link mời máy A gửi. Không cần cài gì thêm.</p>
+                    <ul class="tags"><li>Nhập IP</li><li>Quét QR</li><li>Link mời</li></ul>
+                </article>
+                <article class="feature-card reveal">
+                    <div class="feature-icon">🌐</div>
+                    <h3>Khác mạng: đường hầm Internet</h3>
+                    <p>Máy B dùng 4G/5G hoặc mạng khác thì máy A chạy <code>chia-se-internet.bat</code> (Cloudflare Tunnel) để có link <code>xxxx.trycloudflare.com</code>, rồi máy B nhập link đó thay cho IP.</p>
+                    <ul class="tags"><li>Cloudflare Tunnel</li><li>HTTPS</li></ul>
                 </article>
             </div>
         </div>

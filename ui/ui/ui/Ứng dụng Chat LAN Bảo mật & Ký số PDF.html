@@ -1286,7 +1286,9 @@
 
         // Trang tĩnh (GitHub) kết nối tới máy chủ LAN đã lưu; trang mở từ máy chủ dùng chính máy chủ đó
         const savedServer = () => { try { return (localStorage.getItem('lanchat-server') || '').replace(/[.,;:\s]+$/, ''); } catch (e) { return ''; } };
-        const serverHost = () => state.apiBase ? new URL(state.apiBase).host : location.host;
+        // Máy A mở app bằng localhost thì hiện IP mạng thật của máy, là địa chỉ máy B cần nhập
+        const serverHost = () => state.apiBase ? new URL(state.apiBase).host
+            : ['localhost', '127.0.0.1'].includes(location.hostname) && state.lanIp ? `${state.lanIp} · máy này làm máy chủ` : location.host;
         const isIp = host => /^\d{1,3}(\.\d{1,3}){3}$/.test(host.replace(/:\d+$/, ''));
         const serverBase = host => `https://${/:\d+$/.test(host) || !isIp(host) ? host : host + ':8443'}/`;
         async function probe(base, ms = 5000) {
