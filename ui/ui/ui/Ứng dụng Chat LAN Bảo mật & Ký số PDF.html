@@ -823,6 +823,7 @@
         const PAGES = () => doc().pdf ? doc().pdf.numPages : 3;
 
         // ============ Đăng nhập ============
+        const SAMPLE_USER = 'Nguyễn Văn An';
         let mode = 'login';
         const STEP_TEXT = {
             login: ['Băm mật khẩu SHA‑256', 'Đối chiếu mã băm', 'Tải cặp khóa RSA của tài khoản', 'Kiểm tra chứng thư số X.509'],
@@ -914,8 +915,9 @@
             state.passHash = await sha256($('#fPass').value);
             state.user = name;
             state.isNew = mode === 'register';
-            // Tài khoản mới và mọi tài khoản trên máy chủ bắt đầu trống: danh bạ chỉ có người đã kết bạn
-            state.blank = state.server || mode === 'register';
+            // Mọi tài khoản bắt đầu trống, danh bạ chỉ có người đã kết bạn.
+            // Riêng tài khoản mẫu ở chế độ minh họa giữ dữ liệu để trình diễn.
+            state.blank = state.server || mode === 'register' || name !== SAMPLE_USER;
             const acct = state.server ? name.toLowerCase() : name;
             state.histId = await sha256(acct + ':' + state.passHash);
             state.histKey = await deriveHistKey($('#fPass').value, acct);
