@@ -504,6 +504,14 @@ class Handler(BaseHTTPRequestHandler):
 
 
 class Server(ThreadingHTTPServer):
+    # Trên Windows, cho dùng lại địa chỉ nghĩa là hai máy chủ cùng nghe một cổng; giữ cổng độc quyền
+    allow_reuse_address = False
+
+    def server_bind(self):
+        if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
+
     def handle_error(self, request, client_address):
         # Trình duyệt đóng tab giữa chừng là chuyện bình thường, không cần báo lỗi
         if not isinstance(sys.exc_info()[1], (ConnectionError, ssl.SSLError, TimeoutError)):
@@ -598,21 +606,33 @@ def ensure_certificate():
         f.write(cert.public_bytes(serialization.Encoding.PEM))
 
 
+def log(line):
+    """Ghi ra cửa sổ nếu có, và luôn ghi vào data/server.log để xem lại khi máy chủ chạy ngầm."""
+    print(line, flush=True)
+    os.makedirs(DATA_DIR, exist_ok=True)
+    with open(os.path.join(DATA_DIR, "server.log"), "a", encoding="utf-8") as f:
+        print(f"{datetime.datetime.now():%Y-%m-%d %H:%M:%S}  {line}", file=f)
+
+
 def main():
     ensure_certificate()
     Handler.store = Store()
-    # Riêng máy này: trình duyệt tin localhost nên không cần chứng chỉ, và cổng này không mở ra mạng LAN
-    local = Server(("127.0.0.1", LOCAL_PORT), Handler)
+    try:
+        # Riêng máy này: trình duyệt tin localhost nên không cần chứng chỉ, và cổng này không mở ra mạng LAN
+        local = Server(("127.0.0.1", LOCAL_PORT), Handler)
+        server = Server(("0.0.0.0", PORT), Handler)
+    except OSError:
+        log(f"Không mở được cổng {PORT} hoặc {LOCAL_PORT}: có thể máy chủ đã đang chạy ở cửa sổ khác hoặc chạy ngầm.")
+        sys.exit(1)
     threading.Thread(target=local.serve_forever, daemon=True).start()
-    server = Server(("0.0.0.0", PORT), Handler)
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.load_cert_chain(CERT_PATH, KEY_PATH)
     server.socket = context.wrap_socket(server.socket, server_side=True)
-    print("Máy chủ LAN Chat đang chạy:", flush=True)
-    print(f"  Trên máy này: http://localhost:{LOCAL_PORT}/", flush=True)
+    log(f"Máy chủ LAN Chat đang chạy ({len(Handler.store.users)} tài khoản):")
+    log(f"  Trên máy này: http://localhost:{LOCAL_PORT}/")
     for ip in local_ips():
-        print(f"  https://{ip}:{PORT}/", flush=True)
-    print(f"Cài chứng chỉ gốc một lần trên mỗi máy: https://{primary_ip()}:{PORT}/ca.crt", flush=True)
+        log(f"  https://{ip}:{PORT}/")
+    log(f"Cài chứng chỉ gốc một lần trên mỗi máy: https://{primary_ip()}:{PORT}/ca.crt")
     server.serve_forever()
 
 
