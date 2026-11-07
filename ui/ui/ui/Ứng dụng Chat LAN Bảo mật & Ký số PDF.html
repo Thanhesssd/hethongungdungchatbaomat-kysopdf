@@ -446,6 +446,7 @@
                         <label>SHA‑256 của mật khẩu (giá trị được gửi đi)</label>
                         <div class="hash-box mono" id="hashBox"></div>
                     </div>
+                    <label class="check-row" style="font-size:.84rem"><input type="checkbox" id="fRemember" checked><span>Ghi nhớ đăng nhập trên máy này</span></label>
                     <div class="form-err hidden" id="formErr" role="alert"></div>
                     <button class="btn primary block" id="loginBtn" type="submit">Đăng nhập</button>
                 </form>
@@ -946,6 +947,7 @@
             if (mode === 'register') await regResult(true, state.server
                 ? 'Bạn có thể đăng nhập bằng tài khoản này trên mọi máy trong mạng.'
                 : 'Đây là chế độ minh họa: tài khoản chỉ có trên trình duyệt này.');
+            if ($('#fRemember').checked) await saveSession(); else await clearSession();
             await enterApp();
             if (!state.server) $('#demoBar').classList.remove('hidden');
             if (mode === 'login') toast(`✅ Đăng nhập thành công. Chào mừng ${state.user}!`);
@@ -1000,7 +1002,7 @@
             } else if (!restored) await seedChats();
             renderConvs();
             openChat(state.active, true);
-            if (restored) setTimeout(() => toast(`🔓 Đã khôi phục ${restored} tin nhắn từ lần trò chuyện trước`), 400);
+            if (restored && !state.resumed) setTimeout(() => toast(`🔓 Đã khôi phục ${restored} tin nhắn từ lần trò chuyện trước`), 400);
             renderContacts();
             renderAccount();
             setupPad();
@@ -1018,6 +1020,7 @@
                 `<button class="btn" data-close>Ở lại</button><button class="btn danger" id="confirmLogout">Đăng xuất</button>`);
             $('#confirmLogout').onclick = async () => {
                 if (state.token) await api('logout', {}).catch(() => { });
+                await clearSession();
                 try { sessionStorage.setItem('lanchat-logout', state.user); } catch (e) { }
                 location.reload();
             };
@@ -1278,6 +1281,8 @@
         }
 
         (async () => {
+            // Chờ toàn bộ mã của trang nạp xong rồi mới kiểm tra máy chủ và phiên đã lưu
+            await new Promise(r => setTimeout(r));
             let health = null;
             if (location.protocol !== 'file:') health = await probe('').catch(() => null);
             if (!health && savedServer() && location.protocol === 'https:') {
@@ -1294,7 +1299,7 @@
                 $('#caLink').classList.remove('hidden');
                 $('#connectLink').classList.add('hidden');
                 const pairing = parsePair(location.hash);
-                if (pairing) pairLogin(pairing);
+                if (pairing) { state.pairing = true; pairLogin(pairing); }
                 if (location.hash === '#root-ca') caModal();
                 $('#fName').value = '';
                 $('#fPass').value = '';
@@ -1303,6 +1308,7 @@
                     ? `🟢 Đã kết nối máy chủ LAN ${new URL(state.apiBase).host}. Tài khoản và tin nhắn dùng được trên mọi máy trong mạng.`
                     : '🟢 Đã kết nối máy chủ LAN. Tài khoản và tin nhắn dùng được trên mọi máy trong mạng.';
             } catch (e) { }
+            if (!state.pairing) await tryResume();
         })();
 
         async function publishKeys() {
@@ -1437,6 +1443,7 @@
                     wait = 1;
                 } catch (e) {
                     if (e.status === 401) {
+                        await clearSession();
                         toast('Phiên đăng nhập đã hết hạn. Hãy đăng nhập lại');
                         await sleep(2000);
                         location.reload();
@@ -1815,6 +1822,75 @@
         $('#caLink').onclick = caModal;
         $('#caOpen').onclick = caModal;
 
+        // ============ Ghi nhớ đăng nhập ============
+        // Lưu phiên trong IndexedDB của trình duyệt: khóa được lưu dưới dạng CryptoKey, không lưu mật khẩu
+        const SESSION_DB = 'lanchat-session';
+        const sessionId = () => state.apiBase || (location.origin === 'null' ? location.href.split('#')[0] : location.origin + location.pathname);
+        function sessionStore(mode, work) {
+            return new Promise((resolve, reject) => {
+                const open = indexedDB.open(SESSION_DB, 1);
+                open.onupgradeneeded = () => open.result.createObjectStore('s');
+                open.onerror = () => reject(open.error);
+                open.onsuccess = () => {
+                    const tx = open.result.transaction('s', mode);
+                    const req = work(tx.objectStore('s'));
+                    tx.oncomplete = () => { open.result.close(); resolve(req?.result); };
+                    tx.onerror = () => reject(tx.error);
+                };
+            });
+        }
+        async function saveSession() {
+            const rec = {
+                server: !!state.server, token: state.token || null, me: state.me ?? null, user: state.user, code: state.code || null,
+                privateKey: keyPair.privateKey, publicKey: keyPair.publicKey, histKey: state.histKey || null, histId: state.histId || null,
+                passHash: state.passHash, blank: !!state.blank, saved: Date.now(),
+            };
+            try { await sessionStore('readwrite', s => s.put(rec, sessionId())); } catch (e) { }
+        }
+        async function clearSession() {
+            try { await sessionStore('readwrite', s => s.delete(sessionId())); } catch (e) { }
+        }
+
+        async function tryResume() {
+            let rec;
+            try { rec = await sessionStore('readonly', s => s.get(sessionId())); } catch (e) { return; }
+            if (!rec || rec.server !== !!state.server) return;
+            $('#loginBtn').disabled = true;
+            if (rec.server) {
+                state.token = rec.token;
+                try { await api('users?q=' + encodeURIComponent('\u0000')); }
+                catch (e) {
+                    state.token = null;
+                    $('#loginBtn').disabled = false;
+                    if (e.status === 401) {
+                        await clearSession();
+                        formErr('Phiên đăng nhập đã hết hạn. Hãy đăng nhập lại.');
+                    }
+                    return;
+                }
+            }
+            await generateKeys();
+            keyPair = { privateKey: rec.privateKey, publicKey: rec.publicKey };
+            await publishKeys();
+            Object.assign(state, {
+                user: rec.user, me: rec.me, code: rec.code, histKey: rec.histKey, histId: rec.histId, passHash: rec.passHash,
+                blank: rec.blank, isNew: false, people: {}, seen: new Set(), resumed: true,
+            });
+            mode = 'login';
+            await enterApp();
+            toast(`👋 Chào mừng trở lại, ${state.user}!`);
+            if (state.server) {
+                enterServerUi();
+                renderContacts();
+                syncLoop();
+                const code = parseFriendCode(location.hash);
+                if (code) {
+                    history.replaceState(null, '', location.pathname);
+                    onFriendCode(code);
+                }
+            } else $('#demoBar').classList.remove('hidden');
+        }
+
         // ============ Kết nối tới máy chủ LAN từ bản minh họa ============
         function connectModal(prefill) {
             let last = prefill || '';
@@ -1933,6 +2009,7 @@
                 regResult(false, err.name === 'OperationError' ? 'Mã QR bị hỏng hoặc thiếu. Hãy quét lại mã mới trên máy tính.' : regError(err), '#fName');
                 return;
             }
+            await saveSession();
             await enterApp();
             toast(`✅ Đã kết nối với máy tính. Chào mừng ${state.user}!`);
             enterServerUi();
