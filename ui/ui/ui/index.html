@@ -36,6 +36,7 @@
                 <li><a href="#workflow">Ký nối tiếp</a></li>
                 <li><a href="#security">Bảo mật</a></li>
                 <li><a href="#friends">Kết bạn</a></li>
+                <li><a href="#network">Wi‑Fi/4G</a></li>
                 <li><a href="#devices">Quét QR & thiết bị</a></li>
                 <li><a href="#root-ca">Root CA</a></li>
                 <li><a href="#info">Thông tin</a></li>
@@ -357,6 +358,37 @@
                     <h3>Đồng bộ tin nhắn hai chiều</h3>
                     <p>A gửi thì B nhận ngay, B trả lời thì A nhận ngay; tin được mã hóa đầu cuối và truyền qua máy chủ trong mạng LAN. Máy chủ giữ tin theo đúng thứ tự, nên người đang offline vẫn nhận đủ khi mở lại app và hai bên luôn thấy cùng một cuộc trò chuyện. Không có tin trả lời tự động.</p>
                     <ul class="tags"><li>E2E</li><li>Đồng bộ đa thiết bị</li></ul>
+                </article>
+            </div>
+        </div>
+    </section>
+
+    <!-- Đa mạng -->
+    <section id="network" class="section">
+        <div class="container">
+            <div class="section-header">
+                <span class="eyebrow">Wi‑Fi · 4G · 5G</span>
+                <h2>Kết nối đa mạng và tin nhắn không thất lạc</h2>
+                <p>Người dùng được nhận diện bằng ID tài khoản, không phụ thuộc địa chỉ IP, nên đổi mạng vẫn nhắn tin bình thường.</p>
+            </div>
+            <div class="features-grid">
+                <article class="feature-card reveal">
+                    <div class="feature-icon">📶</div>
+                    <h3>Wi‑Fi hoặc 4G/5G</h3>
+                    <p>Cùng Wi‑Fi thì kết nối thẳng tới máy chủ trong mạng LAN. Khác mạng hoặc dùng 4G/5G thì máy chủ được chia sẻ qua một link Internet HTTPS, hai thiết bị ở hai mạng khác nhau vẫn kết bạn và nhắn tin được.</p>
+                    <ul class="tags"><li>ID tài khoản</li><li>Link Internet</li></ul>
+                </article>
+                <article class="feature-card reveal">
+                    <div class="feature-icon">🔄</div>
+                    <h3>Kết nối luôn mở</h3>
+                    <p>Ứng dụng giữ một luồng kết nối chờ tin mới với máy chủ. Khi mạng đổi, có mạng lại hay mở lại app, ứng dụng đồng bộ ngay; dòng trạng thái báo khi đang mất kết nối.</p>
+                    <ul class="tags"><li>Long polling</li><li>Tự kết nối lại</li></ul>
+                </article>
+                <article class="feature-card reveal">
+                    <div class="feature-icon">📨</div>
+                    <h3>Hàng đợi tin nhắn</h3>
+                    <p>Máy chủ lưu tin theo thứ tự, người đang offline mở lại app vẫn nhận đủ. Tin gửi lúc mất mạng được giữ trong hàng đợi trên máy và tự gửi lại khi có kết nối.</p>
+                    <ul class="tags"><li>Không thất lạc</li><li>Tự gửi lại</li></ul>
                 </article>
             </div>
         </div>

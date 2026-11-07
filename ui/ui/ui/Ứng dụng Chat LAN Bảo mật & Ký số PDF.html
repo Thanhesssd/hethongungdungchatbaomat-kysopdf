@@ -830,7 +830,7 @@
                 { id: 3, name: 'Phạm Thu Hà', role: 'Kế toán', ip: '192.168.1.45', status: 'busy', fp: '' },
                 { id: 4, name: 'Đỗ Quốc Huy', role: 'Kỹ thuật', ip: '192.168.1.52', status: 'off', fp: '' },
             ],
-            chats: {}, unread: { 1: 1, 2: 1 }, active: 1, showCipher: false,
+            chats: {}, unread: { 1: 1, 2: 1 }, active: 1, outbox: [], showCipher: false,
             page: 1, draft: { x: 58, y: 76 }, docs: [], doc: null, history: [], mySig: null, isNew: false, docFilter: 'todo',
         };
         const doc = () => state.doc;
@@ -1081,7 +1081,7 @@
             saveTimer = setTimeout(async () => {
                 const data = {
                     chats: state.chats, unread: state.unread,
-                    extraContacts: state.contacts.filter(c => c.id > 100 && !c.real && !c.group), mem: state.mem || {}, seq: state.seq || 0, blank: !!state.blank,
+                    extraContacts: state.contacts.filter(c => c.id > 100 && !c.real && !c.group), mem: state.mem || {}, seq: state.seq || 0, blank: !!state.blank, outbox: state.outbox,
                 };
                 const iv = crypto.getRandomValues(new Uint8Array(12));
                 const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, state.histKey, enc.encode(JSON.stringify(data)));
@@ -1102,6 +1102,7 @@
                 state.chats = data.chats || {};
                 state.unread = data.unread || {}; state.mem = data.mem || {}; state.seq = data.seq || 0;
                 if (data.blank) state.blank = true;
+                state.outbox = data.outbox || [];
                 return Object.values(state.chats).reduce((a, l) => a + l.length, 0);
             } catch (e) { return 0; }
         }
@@ -1217,6 +1218,8 @@
                         ${m.cipher ? `<div class="cipher mono">AES‑256‑GCM: ${m.cipher.slice(0, 120)}…</div>` : ''}
                         <div class="info">${msgTime(m)} · 🔒${m.dir === 'out' ? ' ✓✓' : ''}</div></div>`;
                 }).join('');
+            box.insertAdjacentHTML('beforeend', state.outbox.filter(m => m.cid === state.active).map(m => `<div class="msg out">
+                <div class="bubble" style="opacity:.6">${esc(m.text)}</div><div class="info">⏳ Chưa gửi được, sẽ tự gửi lại khi có mạng</div></div>`).join(''));
             box.scrollTop = box.scrollHeight;
             $$('[data-open-sign]').forEach(el => el.onclick = () => go('sign'));
         }
@@ -1236,7 +1239,14 @@
             const c = state.contacts.find(x => x.id === cid);
             if (!c) return;
             if (c.real || c.group) {
-                try { await sendReal(c, text); } catch (err) { toast(err.message); $('#msgInput').value = text; }
+                try { await sendReal(c, text); }
+                catch (err) {
+                    if (err.status && err.status < 500) { toast(err.message); $('#msgInput').value = text; return; }
+                    state.outbox.push({ cid, text, ts: Date.now() });
+                    saveChats(); renderMsgs(); renderConvs();
+                    setConn(false);
+                    toast('📶 Mạng đang gián đoạn. Tin sẽ tự gửi khi có kết nối lại');
+                }
                 return;
             }
             await addMsg(cid, { dir: 'out', text });
@@ -1256,11 +1266,15 @@
         const unb64 = s => Uint8Array.from(atob(s), ch => ch.charCodeAt(0));
 
         async function api(path, body) {
+            const ctl = new AbortController();
+            const timer = setTimeout(() => ctl.abort(), 35000);
             const r = await fetch((state.apiBase || '') + 'api/' + path, {
+                signal: ctl.signal,
                 method: body ? 'POST' : 'GET',
                 headers: { 'Content-Type': 'application/json', 'X-Token': state.token || '' },
                 body: body ? JSON.stringify(body) : undefined,
             });
+            clearTimeout(timer);
             const d = await r.json().catch(() => ({}));
             if (!r.ok) throw Object.assign(new Error(d.error || 'Máy chủ không phản hồi'), { status: r.status });
             return d;
@@ -1269,7 +1283,8 @@
         // Trang tĩnh (GitHub) kết nối tới máy chủ LAN đã lưu; trang mở từ máy chủ dùng chính máy chủ đó
         const savedServer = () => { try { return localStorage.getItem('lanchat-server') || ''; } catch (e) { return ''; } };
         const serverHost = () => state.apiBase ? new URL(state.apiBase).host : location.host;
-        const serverBase = host => `https://${/:\d+$/.test(host) ? host : host + ':8443'}/`;
+        const isIp = host => /^\d{1,3}(\.\d{1,3}){3}$/.test(host.replace(/:\d+$/, ''));
+        const serverBase = host => `https://${/:\d+$/.test(host) || !isIp(host) ? host : host + ':8443'}/`;
         async function probe(base) {
             const ctl = new AbortController();
             const t = setTimeout(() => ctl.abort(), 5000);
@@ -1365,6 +1380,44 @@
             return new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(env.iv) }, aes, unb64(env.ct)));
         }
 
+        // ============ Giữ kết nối và gửi lại tin khi mạng chập chờn ============
+        function setConn(ok) {
+            if (!state.server || state.connOk === ok) return;
+            state.connOk = ok;
+            $('#netDot').className = 'dot ' + (ok ? 'on' : 'busy');
+            $('#netLabel').textContent = ok ? `Máy chủ LAN ${serverHost()}` : 'Mất kết nối · đang thử lại…';
+            if (ok) flushOutbox();
+        }
+
+        let flushing = false;
+        async function flushOutbox() {
+            if (flushing || !state.outbox.length) return;
+            flushing = true;
+            try {
+                while (state.outbox.length) {
+                    const m = state.outbox[0];
+                    const c = state.contacts.find(x => x.id === m.cid);
+                    if (!c) { state.outbox.shift(); continue; }
+                    try { await sendReal(c, m.text); }
+                    catch (e) {
+                        if (e.status && e.status < 500) { state.outbox.shift(); toast(`Không gửi được tin tới ${c.name}: ${e.message}`); continue; }
+                        break;
+                    }
+                    state.outbox.shift();
+                }
+            } finally {
+                flushing = false;
+                saveChats(); renderMsgs(); renderConvs();
+            }
+        }
+
+        // Có mạng lại hoặc mở lại app: đồng bộ ngay, không chờ vòng lặp
+        const resyncNow = () => { if (state.server && state.token) refresh().then(() => { setConn(true); flushOutbox(); }, () => setConn(false)); };
+        window.addEventListener('online', resyncNow);
+        window.addEventListener('offline', () => setConn(false));
+        document.addEventListener('visibilitychange', () => { if (!document.hidden) resyncNow(); });
+        setInterval(() => { if (state.outbox?.length) flushOutbox(); }, 5000);
+
         async function sendReal(c, text) {
             const ids = c.group ? c.members : [state.me, c.id];
             const env = await sealFor(ids, text);
@@ -1441,7 +1494,9 @@
                 try {
                     await applySync(await api(`sync?since=${state.seq || 0}&wait=${wait}`));
                     wait = 1;
+                    setConn(true);
                 } catch (e) {
+                    setConn(false);
                     if (e.status === 401) {
                         await clearSession();
                         toast('Phiên đăng nhập đã hết hạn. Hãy đăng nhập lại');
@@ -1560,6 +1615,7 @@
                 <p style="text-align:center"><b>${esc(state.user)}</b></p>
                 <p class="muted" style="text-align:center;font-size:.8rem">Người khác quét mã này để gửi lời mời kết bạn tới bạn.</p>
                 <p style="text-align:center;font-size:.82rem">Địa chỉ máy chủ: <b class="mono">${esc(friendLink().split('/')[2])}</b></p>
+                ${isIp(friendLink().split('/')[2]) ? '<p class="muted" style="text-align:center;font-size:.76rem">Địa chỉ này chỉ dùng được khi chung Wi‑Fi. Người dùng 4G/5G cần mở app qua link Internet của máy chủ rồi tạo mã QR ở đó.</p>' : ''}
                 <p class="muted" style="text-align:center;font-size:.76rem">Vân tay khóa: <span class="mono">${fmtFp(state.fingerprint)}</span></p>`,
                 `<button class="btn" id="newCode">Đổi mã QR</button><button class="btn primary" data-close>Xong</button>`);
             $('#newCode').onclick = async () => {
@@ -1898,8 +1954,8 @@
             modal('Kết nối máy chủ LAN', `
                 <p style="font-size:.86rem">Để hai máy kết bạn và nhắn tin thật, cả hai phải mở app qua <b>cùng một máy chủ LAN</b>, tức máy đang chạy <span class="mono">server.py</span>. Link GitHub chỉ là bản minh họa.</p>
                 <div class="field" style="margin-top:.7rem"><label for="srvAddr">Địa chỉ máy chủ</label>
-                    <input class="input mono" id="srvAddr" placeholder="192.168.1.10" value="${esc(last)}">
-                    <small>Xem địa chỉ ở máy chạy máy chủ: mục Danh bạ, nút "QR của tôi". Hai máy phải dùng chung mạng Wi‑Fi.</small></div>
+                    <input class="input mono" id="srvAddr" placeholder="192.168.1.10 hoặc xxxx.trycloudflare.com" value="${esc(last)}">
+                    <small>Cùng Wi‑Fi: nhập địa chỉ IP, xem ở mục Danh bạ, nút "QR của tôi" trên máy chạy máy chủ. Dùng 4G/5G hoặc khác mạng: nhập link Internet của máy chủ (chạy chia-se-internet.bat).</small></div>
                 <p class="muted" id="srvHelp" style="font-size:.78rem">Lần đầu kết nối, trình duyệt có thể cảnh báo bảo mật hoặc hỏi quyền truy cập mạng nội bộ. Chọn Tiếp tục và Cho phép.</p>`,
                 `<button class="btn" data-close>Hủy</button><button class="btn primary" id="srvGo">Mở app trên máy chủ</button>`);
             $('#srvGo').onclick = async () => {
