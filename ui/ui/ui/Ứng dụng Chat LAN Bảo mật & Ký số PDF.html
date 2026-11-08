@@ -905,7 +905,7 @@
         }
 
         function regError(err) {
-            if (err instanceof TypeError) return 'Không kết nối được máy chủ. Hãy kiểm tra máy chủ đang chạy rồi thử lại.';
+            if (err instanceof TypeError || err.name === 'AbortError') return 'Không kết nối được máy chủ. Tài khoản, bạn bè và tin nhắn của bạn vẫn an toàn trên máy chủ. Hãy bật máy chủ (chay-may-chu.bat), kiểm tra chung Wi‑Fi rồi bấm Thử lại.';
             return err.message || 'Có lỗi không mong muốn. Hãy thử lại.';
         }
 
@@ -943,6 +943,21 @@
                 if (name.length < 2 || name.length > 60) return regResult(false, 'Tên tài khoản cần từ 2 đến 60 ký tự.', '#fName');
                 if ($('#fPass').value.length < 4) return regResult(false, 'Mật khẩu cần ít nhất 4 ký tự.', '#fPass');
                 if ($('#fPass').value !== $('#fPass2').value) return regResult(false, 'Hai lần nhập mật khẩu chưa giống nhau.', '#fPass2');
+            }
+            // Từng dùng máy chủ mà giờ chưa kết nối được: không cho vào bản minh họa trống với cùng tên,
+            // vì tài khoản, bạn bè và tin nhắn thật đang nằm trên máy chủ
+            if (!state.server && loadRoutes() && name !== SAMPLE_USER) {
+                $('#loginBtn').disabled = true;
+                toast('📡 Đang kết nối lại máy chủ…');
+                const best = await pickServer().catch(() => null);
+                $('#loginBtn').disabled = false;
+                if (!best) return regResult(false, `Chưa kết nối được máy chủ ${savedServer()}. Tài khoản, bạn bè và tin nhắn của bạn vẫn an toàn trên máy chủ, `
+                    + `nhưng phải kết nối được mới đăng nhập. Hãy bật máy chủ (bấm đúp chay-may-chu.bat trên máy chủ), kiểm tra chung Wi‑Fi, rồi bấm Thử lại. `
+                    + `App cũng tự kết nối lại khi máy chủ bật.`, '#fPass');
+                // Máy chủ đã hoạt động lại: tải lại để vào đúng chế độ máy chủ rồi đăng nhập
+                toast('🟢 Đã kết nối lại máy chủ. Hãy đăng nhập lại');
+                setTimeout(() => location.reload(), 900);
+                return;
             }
             formErr('');
             $('#loginBtn').disabled = true;
