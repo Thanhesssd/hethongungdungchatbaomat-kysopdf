@@ -1334,12 +1334,16 @@
         // ============ Kết nối Mọi nơi: nhiều đường tới cùng một máy chủ ============
         // lanchat-servers = { id, lan: ['192.168.1.10:8443', ...], public: 'https://...' }
         function loadRoutes() {
+            // Địa chỉ đuôi .1 hoặc .254 là router/modem: từng nhập nhầm thì bỏ đi, không thử lại mãi
+            const notRouter = h => !(isIp(h) && !h.startsWith('127.') && /\.(1|254)(:\d+)?$/.test(h));
             try {
                 const r = JSON.parse(localStorage.getItem('lanchat-servers') || 'null');
+                if (r) r.lan = (r.lan || []).filter(notRouter);
                 if (r && (r.lan?.length || r.public)) return r;
             } catch (e) { }
             let one = '';
             try { one = (localStorage.getItem('lanchat-server') || '').replace(/[.,;:\s]+$/, ''); } catch (e) { }
+            if (one && !notRouter(one)) { try { localStorage.removeItem('lanchat-server'); } catch (e) { } return null; }
             return one ? (isIp(one) ? { lan: [one] } : { public: 'https://' + one.replace(/^https?:\/\//, '') }) : null;
         }
         function saveRoutes(r) {
@@ -1433,7 +1437,11 @@
                 toast(`📡 Đang kết nối tới máy chủ ${savedServer()}…`);
             }
             let health = null;
-            if (location.protocol !== 'file:') health = await probe('').catch(() => null);
+            const staticHost = location.protocol === 'file:' || /\.github\.io$/.test(location.hostname);
+            // Từng lưu địa chỉ máy chủ (kể cả địa chỉ nhầm đã bị bỏ): nếu không kết nối được thì tự dò lại
+            let hadSaved = false;
+            try { hadSaved = !!(localStorage.getItem('lanchat-servers') || localStorage.getItem('lanchat-server')); } catch (e) { }
+            if (!staticHost) health = await probe('').catch(() => null);
             if (health) state.routeKind = isIp(location.hostname) || ['localhost', '127.0.0.1'].includes(location.hostname) || location.protocol === 'http:' ? 'lan' : 'internet';
             if (!health && savedServer() && location.protocol === 'https:') {
                 const base = serverBase(savedServer());
@@ -1444,8 +1452,9 @@
                     $('#serverNote').textContent = `⚠ Không kết nối được máy chủ ${savedServer()}. App sẽ tự thử lại, hoặc bấm "Kết nối máy chủ LAN".`;
                     netStatus('off', `Mất kết nối máy chủ ${savedServer()}`, true);
                     watchSavedServer(base);
+                    autoDiscover();
                 }
-            }
+            } else if (!health && hadSaved && location.protocol === 'https:') autoDiscover();
             try {
                 if (!health) throw new Error('demo');
                 state.server = true;
@@ -2269,9 +2278,28 @@
                 toast('🟢 Máy chủ đã hoạt động trở lại. Đang chuyển sang máy chủ…');
                 setTimeout(() => location.reload(), 1200);
             };
-            const timer = setInterval(attempt, 10000);
+            // Thử lại mỗi 10 giây trong phút đầu, sau đó thưa dần tới 1 phút để không gọi lỗi liên tục
+            let tries = 0, timer = null;
+            const schedule = () => {
+                const delay = tries < 6 ? 10000 : Math.min(10000 * 2 ** (tries - 5), 60000);
+                timer = setTimeout(async () => { tries++; await attempt(); if (!state.server) schedule(); }, delay);
+            };
+            const clearInterval = () => clearTimeout(timer);
+            schedule();
             window.addEventListener('online', attempt);
             state.retrySaved = attempt;
+        }
+
+        // Địa chỉ đã lưu không dùng được (đổi mạng, đổi IP, nhập nhầm): tự dò máy chủ trong mạng một lần
+        async function autoDiscover() {
+            if (location.protocol !== 'https:' || state.discovering) return;
+            state.discovering = true;
+            const hit = await discoverServer().catch(() => null);
+            state.discovering = false;
+            if (!hit || state.server) return;
+            addRoutesFromLink([hit.host]);
+            toast(`🔍 Đã tìm thấy máy chủ ${hit.host}. Đang kết nối…`);
+            setTimeout(() => location.reload(), 1200);
         }
 
         $('#reconnectBtn').onclick = () => {
