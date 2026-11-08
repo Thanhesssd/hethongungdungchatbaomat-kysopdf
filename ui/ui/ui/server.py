@@ -691,6 +691,24 @@ def main():
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.load_cert_chain(CERT_PATH, KEY_PATH)
     server.socket = context.wrap_socket(server.socket, server_side=True)
+
+    def watch_ip():
+        # Máy đổi mạng (đổi Wi‑Fi, IP mới) trong lúc chạy: cấp lại chứng chỉ có IP mới và nạp ngay, không cần khởi động lại
+        known = set(local_ips())
+        while True:
+            time.sleep(15)
+            now = set(local_ips())
+            if now == known:
+                continue
+            known = now
+            try:
+                ensure_certificate()
+                context.load_cert_chain(CERT_PATH, KEY_PATH)
+                log(f"Địa chỉ mạng đã đổi, đã cấp lại chứng chỉ. Máy khác dùng: https://{primary_ip()}:{PORT}/")
+            except Exception as e:
+                log(f"Không cấp lại được chứng chỉ khi đổi mạng: {e}")
+
+    threading.Thread(target=watch_ip, daemon=True).start()
     log(f"Máy chủ LAN Chat đang chạy ({len(Handler.store.users)} tài khoản):")
     log(f"  Trên máy này: http://localhost:{LOCAL_PORT}/")
     for ip in local_ips():
