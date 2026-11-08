@@ -499,6 +499,7 @@
             <!-- Trang cá nhân -->
             <div class="demo-bar hidden" id="demoBar">
                 <span>⚠ Bản minh họa: chưa kết nối máy chủ LAN, nên không kết bạn hay nhắn tin được với máy khác.</span>
+                <a class="btn sm" href="http://localhost:8000/" title="Dùng khi đang ở chính máy chạy máy chủ">🖥️ Máy này là máy chủ</a>
                 <button class="btn sm" type="button" data-discover>🔍 Tự tìm máy chủ</button>
                 <button class="btn sm primary" type="button" data-connect>🔌 Kết nối máy chủ LAN</button>
             </div>
@@ -2388,6 +2389,10 @@
                 <div class="field" style="margin-top:.7rem"><label for="srvAddr">Địa chỉ máy chủ</label>
                     <input class="input mono" id="srvAddr" placeholder="192.168.1.10 hoặc xxxx.trycloudflare.com" value="${esc(last)}">
                     <small>Cùng Wi‑Fi: nhập địa chỉ IP, xem ở mục Danh bạ, nút "QR của tôi" trên máy chạy máy chủ. Dùng 4G/5G hoặc khác mạng: nhập link Internet của máy chủ (chạy chia-se-internet.bat).</small></div>
+                <div class="ca-status" style="font-size:.78rem;display:block;margin-bottom:.5rem">
+                    <b>Trình duyệt hỏi "truy cập thiết bị trên mạng cục bộ"?</b> Chọn <b>Cho phép</b>, nếu không link GitHub không gọi được máy chủ.
+                    Lỡ chặn: bấm biểu tượng bên trái thanh địa chỉ, chọn Cài đặt trang web, mục <b>Mạng cục bộ</b>, chọn Cho phép, rồi tải lại trang.<br>
+                    Cách chắc chắn nhất: mở app thẳng từ máy chủ, <a href="http://localhost:8000/">http://localhost:8000</a> trên chính máy chủ, hoặc <span class="mono">https://IP-máy-chủ:8443</span> trên máy khác.</div>
                 <p class="muted" id="srvHelp" style="font-size:.78rem">Lần đầu kết nối, trình duyệt có thể cảnh báo bảo mật hoặc hỏi quyền truy cập mạng nội bộ. Chọn Tiếp tục và Cho phép.</p>`,
                 `<button class="btn" data-close>Hủy</button><button class="btn" id="srvFind">🔍 Tự tìm máy chủ</button><button class="btn primary" id="srvGo">Kết nối</button>`);
             $('#srvFind').onclick = runDiscovery;
