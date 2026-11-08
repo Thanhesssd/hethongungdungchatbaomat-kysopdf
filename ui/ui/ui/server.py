@@ -30,7 +30,7 @@ MAX_BODY = 1024 * 1024
 MAX_GROUP = 50
 MAX_FAILS = 5
 MAX_SIGNUPS_PER_HOUR = 10
-PAIR_SECONDS = 120
+PAIR_SECONDS = 300  # đủ thời gian cho bước bỏ qua cảnh báo chứng chỉ trên điện thoại
 # Trang được phép dùng máy chủ này từ địa chỉ khác (bản trên GitHub Pages)
 PUBLIC_URL_FILE = os.path.join(DATA_DIR, "public_url.txt")
 SERVER_ID_FILE = os.path.join(DATA_DIR, "server_id")
