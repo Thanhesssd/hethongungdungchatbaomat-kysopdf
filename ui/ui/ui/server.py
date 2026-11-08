@@ -716,13 +716,21 @@ def ensure_certificate():
 
 def log(line):
     """Ghi ra cửa sổ nếu có, và luôn ghi vào data/server.log để xem lại khi máy chủ chạy ngầm."""
-    print(line, flush=True)
+    try:
+        print(line, flush=True)
+    except (UnicodeEncodeError, OSError, ValueError):
+        pass  # chạy ngầm không có cửa sổ, hoặc cửa sổ không hiển thị được tiếng Việt: chỉ ghi vào file nhật ký
     os.makedirs(DATA_DIR, exist_ok=True)
     with open(os.path.join(DATA_DIR, "server.log"), "a", encoding="utf-8") as f:
         print(f"{datetime.datetime.now():%Y-%m-%d %H:%M:%S}  {line}", file=f)
 
 
 def main():
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError, OSError):
+            pass
     ensure_certificate()
     Handler.store = Store()
     try:
@@ -731,7 +739,7 @@ def main():
         server = Server(("0.0.0.0", PORT), Handler)
     except OSError:
         log(f"Không mở được cổng {PORT} hoặc {LOCAL_PORT}: có thể máy chủ đã đang chạy ở cửa sổ khác hoặc chạy ngầm.")
-        sys.exit(1)
+        sys.exit(3)  # mã riêng cho "cổng đang bận": bộ giữ máy chủ chờ lâu hơn
     threading.Thread(target=local.serve_forever, daemon=True).start()
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
     context.load_cert_chain(CERT_PATH, KEY_PATH)

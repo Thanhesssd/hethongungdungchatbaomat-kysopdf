@@ -27,6 +27,12 @@ Gỡ cài đặt: bấm đúp `go-cai-dat-may-chu.bat`. Tài khoản và tin nh�
 
 Không muốn cài đặt: bấm đúp `chay-may-chu.bat` mỗi lần cần dùng và giữ cửa sổ đó mở.
 
+## Máy chủ luôn bật
+
+- **Tự chạy khi bật máy, không cần quyền quản trị:** bấm đúp `tu-chay-khi-bat-may.bat`. Máy chủ chạy ngầm (không có cửa sổ) qua `giu_may_chu.pyw` và **tự bật lại sau 5 giây** nếu bị tắt hay gặp lỗi. Gỡ: `go-tu-chay-khi-bat-may.bat`.
+- Máy chủ chạy trên máy tính này nên **khi máy tắt, ngủ (sleep) hoặc mất mạng thì máy chủ cũng dừng**; bật máy lên là máy chủ tự chạy lại. Nên tắt chế độ ngủ: Cài đặt > Hệ thống > Nguồn > Màn hình và ngủ > Khi cắm điện, máy ngủ sau: Không bao giờ.
+- Muốn máy chủ chạy 24/7 kể cả khi máy tính này tắt, cần đặt `server.py` lên một máy chạy liên tục khác: PC để bàn luôn bật, hoặc máy chủ đám mây (VPS) có tên miền.
+
 ## Địa chỉ truy cập
 
 | Thiết bị | Địa chỉ |
