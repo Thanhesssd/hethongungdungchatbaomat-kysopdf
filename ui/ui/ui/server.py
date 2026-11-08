@@ -86,8 +86,16 @@ class Store:
         self.cond.notify_all()
 
     def find_user(self, name):
+        """Tìm theo tên đúng, mã số (1001 hoặc #1001), hoặc tên rút gọn của Địa chỉ LAN Chat (nguyen.van.an)."""
         key = clean_name(name).lower()
-        return next((u for u in self.users.values() if u["name"].lower() == key), None)
+        user = next((u for u in self.users.values() if u["name"].lower() == key), None)
+        if user:
+            return user
+        num = key.lstrip("#")
+        if num.isdigit():
+            return self.users.get(int(num))
+        matches = [u for u in self.users.values() if handle_of(u["name"]) == handle_of(key)]
+        return matches[0] if len(matches) == 1 else None
 
     def friends_of(self, uid):
         return {b if a == uid else a for a, b in self.friends if uid in (a, b)}
@@ -98,6 +106,13 @@ class Store:
         if (other, uid) in self.requests:
             return "incoming"
         return "outgoing" if (uid, other) in self.requests else "none"
+
+
+def handle_of(name):
+    """Tên rút gọn dùng trong Địa chỉ LAN Chat: bỏ dấu, chữ thường, nối bằng dấu chấm."""
+    text = unicodedata.normalize("NFD", name.lower().replace("đ", "d"))
+    text = "".join(c for c in text if not unicodedata.combining(c))
+    return re.sub(r"[^a-z0-9]+", ".", text).strip(".")
 
 
 def clean_name(name):
@@ -186,6 +201,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.serve_ca()
         if url.path == "/api/pair/status":
             return self.handle_pair_status(parse_qs(url.query))
+        if url.path == "/api/vault":
+            return self.handle_vault_get()
         if url.path == "/api/ca":
             return self.handle_ca()
         if url.path == "/api/sync":
@@ -236,7 +253,8 @@ class Handler(BaseHTTPRequestHandler):
                   "/api/group/add": self.handle_group_add, "/api/group/leave": self.handle_group_leave,
                   "/api/friend": self.handle_friend, "/api/friend/scan": self.handle_friend_scan,
                   "/api/friend/code": self.handle_friend_code, "/api/logout": self.handle_logout, "/api/ack": self.handle_ack,
-                  "/api/pair/create": self.handle_pair_create, "/api/pair/claim": self.handle_pair_claim}
+                  "/api/pair/create": self.handle_pair_create, "/api/pair/claim": self.handle_pair_claim,
+                  "/api/vault": self.handle_vault_put}
         route = routes.get(urlparse(self.path).path)
         if not route:
             return self.send_json({"error": "Không tìm thấy"}, 404)
@@ -345,6 +363,25 @@ class Handler(BaseHTTPRequestHandler):
                 self.store.rseq += 1
                 self.store.save()
                 self.store.cond.notify_all()
+        self.send_json({"ok": True})
+
+    def handle_vault_get(self):
+        """Kho dữ liệu riêng của tài khoản (chữ ký, lịch sử ký...), đã mã hóa bằng khóa của chính tài khoản."""
+        uid = self.current_user()
+        if not uid:
+            return self.send_json({"error": "Phiên đăng nhập đã hết hạn"}, 401)
+        self.send_json({"env": self.store.users[uid].get("vault")})
+
+    def handle_vault_put(self, body):
+        uid = self.current_user()
+        if not uid:
+            return self.send_json({"error": "Phiên đăng nhập đã hết hạn"}, 401)
+        env = body["env"]
+        if not isinstance(env, dict) or str(uid) not in env.get("keys", {}):
+            return self.send_json({"error": "Dữ liệu không hợp lệ"}, 400)
+        with self.store.cond:
+            self.store.users[uid]["vault"] = env
+            self.store.save()
         self.send_json({"ok": True})
 
     def handle_logout(self, body):

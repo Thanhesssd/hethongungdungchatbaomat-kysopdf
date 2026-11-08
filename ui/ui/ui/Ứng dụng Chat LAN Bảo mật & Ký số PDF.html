@@ -432,7 +432,7 @@
                 </div>
                 <form id="loginForm" autocomplete="off">
                     <div class="field">
-                        <label for="fName">Tên tài khoản (họ và tên)</label>
+                        <label for="fName">Tên tài khoản, mã số hoặc Địa chỉ LAN Chat</label>
                         <input class="input" id="fName" value="Nguyễn Văn An" required>
                     </div>
                     <div class="field">
@@ -909,10 +909,36 @@
             return err.message || 'Có lỗi không mong muốn. Hãy thử lại.';
         }
 
+        // Đăng nhập trên máy khác bằng Địa chỉ LAN Chat (ten@máy-chủ): tự kết nối đúng máy chủ trước
+        async function connectFromAddress(host) {
+            addRoutesFromLink([host]);
+            const best = await pickServer();
+            if (!best) return false;
+            Object.assign(state, { server: true, apiBase: best.base === location.origin + '/' ? '' : best.base, routeKind: best.kind,
+                lanIp: best.health.ip, lanPort: best.health.port, publicUrl: best.health.public || null });
+            rememberRoutes(best.health);
+            netStatus('on', routeLabel());
+            $('#connectLink').classList.add('hidden');
+            $('#serverNote').textContent = `🟢 Đã kết nối máy chủ ${new URL(best.base).host}.`;
+            return true;
+        }
+
         $('#loginForm').onsubmit = async e => {
             e.preventDefault();
-            const name = $('#fName').value.trim().replace(/\s+/g, ' ').normalize('NFC');
+            let name = $('#fName').value.trim().replace(/\s+/g, ' ').normalize('NFC');
             if (!name) return;
+            const at = name.match(/^([^@\s]+)@([\w.-]+(?::\d+)?)$/);
+            if (at) {
+                if (!state.server) {
+                    formErr('');
+                    $('#loginBtn').disabled = true;
+                    toast(`📡 Đang kết nối tới máy chủ ${at[2]}…`);
+                    const ok = await connectFromAddress(at[2]);
+                    $('#loginBtn').disabled = false;
+                    if (!ok) return regResult(false, `Không kết nối được máy chủ ${at[2]}. Kiểm tra máy chủ đang bật, chung Wi‑Fi, và đã mở https://${at[2].includes(':') ? at[2] : at[2] + ':8443'} một lần để tin chứng chỉ.`, '#fName');
+                }
+                name = at[1];
+            }
             if (mode === 'register') {
                 if (name.length < 2 || name.length > 60) return regResult(false, 'Tên tài khoản cần từ 2 đến 60 ký tự.', '#fName');
                 if ($('#fPass').value.length < 4) return regResult(false, 'Mật khẩu cần ít nhất 4 ký tự.', '#fPass');
@@ -1512,6 +1538,11 @@
                 d = await api('register', { name, passHash: state.passHash, pub: await publishKeys(), priv: { iv: b64(iv), ct: b64(ct) } });
             } else {
                 d = await api('login', { name, passHash: state.passHash });
+                const real = d.name.toLowerCase();
+                if (real !== name.toLowerCase()) {
+                    state.histKey = await deriveHistKey($('#fPass').value, real);
+                    state.histId = await sha256(real + ':' + state.passHash);
+                }
                 const pkcs8 = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(d.priv.iv) }, state.histKey, unb64(d.priv.ct));
                 const algo = { name: 'RSA-OAEP', hash: 'SHA-256' };
                 keyPair = {
@@ -2673,8 +2704,36 @@
         }
         $('#capDocBtn').onclick = captureModal;
 
+        // ============ Đồng bộ dữ liệu tài khoản giữa các thiết bị ============
+        // Danh bạ và tin nhắn đã nằm trên máy chủ. Phần còn lại (chữ ký đồ họa, lịch sử ký, ghi nhớ trợ lý) được
+        // mã hóa bằng khóa công khai của chính tài khoản rồi gửi lên, máy nào có khóa riêng của tài khoản mới mở được.
+        let vaultTimer = null;
+        function vaultSave() {
+            if (!state.server || !state.token || !state.vaultReady) return;
+            clearTimeout(vaultTimer);
+            vaultTimer = setTimeout(async () => {
+                const data = { mySig: state.mySig || null, history: state.history.slice(0, 200), mem: state.mem || {}, saved: Date.now() };
+                try { await api('vault', { env: await sealFor([state.me], JSON.stringify(data)) }); } catch (e) { }
+            }, 1500);
+        }
+        async function vaultLoad() {
+            try {
+                const { env } = await api('vault');
+                if (env) {
+                    const data = JSON.parse(await openEnvelope(env));
+                    if (data.mySig && !state.mySig) { state.mySig = data.mySig; drawImageToMyPad(data.mySig); }
+                    const seen = new Set(state.history.map(x => x.text + '|' + x.time));
+                    state.history = [...state.history, ...(data.history || []).filter(x => !seen.has(x.text + '|' + x.time))].slice(0, 200);
+                    state.mem = { ...(data.mem || {}), ...(state.mem || {}) };
+                    if (!$('#view-profile').classList.contains('hidden')) renderProfile();
+                }
+            } catch (e) { }
+            state.vaultReady = true;
+        }
+
         // Giao diện thật khi đăng nhập qua máy chủ LAN
         function enterServerUi() {
+            vaultLoad();
             for (const c of state.contacts) if (!c.real && !c.group) c.role += ' · trả lời tự động';
             $('#meAddr').textContent = 'Máy chủ LAN';
             $('#pAddr').textContent = `Địa chỉ LAN Chat: ${chatAddress()} · ID ${state.me}`;
@@ -3493,6 +3552,7 @@
         function addHistory(icon, text, docName, when = new Date()) {
             state.history.unshift({ icon, text, doc: docName, time: when.toLocaleString('vi-VN') });
             state.history.length = Math.min(state.history.length, 30);
+            vaultSave();
         }
 
         // Tài liệu mẫu ở ba trạng thái: chờ ký, đang luân chuyển, đã hoàn tất
@@ -3676,6 +3736,7 @@
         };
         $('#mySave').onclick = () => {
             state.mySig = myPad().toDataURL('image/png');
+            vaultSave();
             addHistory('🖊️', 'Cập nhật chữ ký đồ họa', 'Hồ sơ cá nhân');
             if (doc()?.signerIdx === 0) loadSignerSig();
             renderProfile();
