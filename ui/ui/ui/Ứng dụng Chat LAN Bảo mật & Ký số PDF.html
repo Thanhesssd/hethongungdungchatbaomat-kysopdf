@@ -1443,6 +1443,12 @@
             try { hadSaved = !!(localStorage.getItem('lanchat-servers') || localStorage.getItem('lanchat-server')); } catch (e) { }
             if (!staticHost) health = await probe('').catch(() => null);
             if (health) state.routeKind = isIp(location.hostname) || ['localhost', '127.0.0.1'].includes(location.hostname) || location.protocol === 'http:' ? 'lan' : 'internet';
+            // Mở link GitHub ngay trên máy chạy máy chủ: gọi qua http://localhost, trình duyệt cho phép mà không cần tin chứng chỉ
+            if (!health && staticHost && location.protocol === 'https:') {
+                const local = `http://localhost:${state.discoverLocalPort || 8000}/`;
+                const h = await probe(local, 1500).catch(() => null);
+                if (h) { health = h; state.apiBase = local; state.routeKind = 'lan'; }
+            }
             if (!health && savedServer() && location.protocol === 'https:') {
                 const base = serverBase(savedServer());
                 netStatus('busy', `Đang tìm đường kết nối tới máy chủ…`);
