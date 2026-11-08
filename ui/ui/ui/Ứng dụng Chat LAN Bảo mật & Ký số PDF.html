@@ -1108,6 +1108,7 @@
 
         let saveTimer = null;
         function saveChats() {
+            vaultSave(); // danh bạ thêm tay, ghi nhớ… cũng gửi lên két để máy khác có (tự gom, 1,5 giây/lần)
             if (!state.histKey) return;
             clearTimeout(saveTimer);
             saveTimer = setTimeout(async () => {
@@ -1401,8 +1402,23 @@
         }
         const savedServer = () => { const r = loadRoutes(); return r ? (r.lan?.[0] || (r.public || '').replace(/^https:\/\//, '')) : ''; };
 
+        // Bản GitHub Pages: máy chủ tự ghi địa chỉ hiện tại (link Internet + IP mạng LAN) vào may-chu.json mỗi khi đổi.
+        // Đọc file này để thiết bị nào mở link GitHub cũng tự kết nối, không cần gõ địa chỉ; link đổi thì tự theo.
+        let dirAt = 0;
+        async function refreshDirectory() {
+            if (!/\.github\.io$/.test(location.hostname) || Date.now() - dirAt < 20000) return false;
+            dirAt = Date.now();
+            const dir = await fetch('may-chu.json?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null);
+            if (!dir || !(dir.public || dir.lan?.length)) return false;
+            const r = loadRoutes();
+            if (r?.id && dir.id && r.id !== dir.id) saveRoutes({ id: dir.id, lan: [], public: null }); // máy chủ khác hẳn: bỏ địa chỉ cũ
+            addRoutesFromLink([...(dir.lan || []), ...(dir.public ? [dir.public] : [])]);
+            return true;
+        }
+
         // Gọi /api/health tới mọi đường cùng lúc; ưu tiên mạng nội bộ, chỉ dùng Internet khi không có đường LAN nào
         async function pickServer() {
+            await refreshDirectory();
             const r = loadRoutes();
             if (!r) return null;
             const tries = [
@@ -1480,6 +1496,8 @@
                 const h = await probe(local, 1500).catch(() => null);
                 if (h) { health = h; state.apiBase = local; state.routeKind = 'lan'; }
             }
+            // Thiết bị mới mở link GitHub lần đầu (chưa lưu địa chỉ nào): lấy địa chỉ máy chủ từ may-chu.json
+            if (!health && staticHost && location.protocol === 'https:' && await refreshDirectory()) toast('📡 Đang tự kết nối tới máy chủ LAN Chat…');
             if (!health && savedServer() && location.protocol === 'https:') {
                 const base = serverBase(savedServer());
                 netStatus('busy', `Đang tìm đường kết nối tới máy chủ…`);
@@ -1682,6 +1700,8 @@
             }
             state.seq = Math.max(state.seq || 0, d.seq);
             state.rseq = d.rseq;
+            // Máy khác của cùng tài khoản vừa đổi két (danh bạ, chữ ký…): tải lại và gộp
+            if (state.vaultReady && d.vault && d.vault > (state.vaultVer || 0)) vaultLoad();
             const receiptsChanged = JSON.stringify(state.receipts || {}) !== JSON.stringify(d.receipts || {});
             state.receipts = d.receipts || {};
             // Báo máy chủ đã nhận tin, để máy gửi thấy ✓✓
@@ -2707,28 +2727,49 @@
         // ============ Đồng bộ dữ liệu tài khoản giữa các thiết bị ============
         // Danh bạ và tin nhắn đã nằm trên máy chủ. Phần còn lại (chữ ký đồ họa, lịch sử ký, ghi nhớ trợ lý) được
         // mã hóa bằng khóa công khai của chính tài khoản rồi gửi lên, máy nào có khóa riêng của tài khoản mới mở được.
-        let vaultTimer = null;
+        // Két gồm: danh bạ thêm tay (liên hệ nhập tên + IP), chữ ký đồ họa, lịch sử ký, ghi nhớ trợ lý.
+        // Máy khác đang mở cùng tài khoản thấy số phiên bản mới trong /api/sync thì tự tải lại và gộp.
+        let vaultTimer = null, vaultBusy = false;
         function vaultSave() {
             if (!state.server || !state.token || !state.vaultReady) return;
             clearTimeout(vaultTimer);
             vaultTimer = setTimeout(async () => {
-                const data = { mySig: state.mySig || null, history: state.history.slice(0, 200), mem: state.mem || {}, saved: Date.now() };
-                try { await api('vault', { env: await sealFor([state.me], JSON.stringify(data)) }); } catch (e) { }
+                const data = {
+                    mySig: state.mySig || null, sigAt: state.mySigAt || 0, history: state.history.slice(0, 200), mem: state.mem || {},
+                    contacts: state.contacts.filter(c => c.local).map(({ id, name, role, ip, fp }) => ({ id, name, role, ip, fp, local: true })),
+                    saved: Date.now(),
+                };
+                try { const r = await api('vault', { env: await sealFor([state.me], JSON.stringify(data)) }); if (r.ver) state.vaultVer = r.ver; } catch (e) { }
             }, 1500);
         }
         async function vaultLoad() {
+            if (vaultBusy) return;
+            vaultBusy = true;
             try {
-                const { env } = await api('vault');
+                const { env, ver } = await api('vault');
                 if (env) {
                     const data = JSON.parse(await openEnvelope(env));
-                    if (data.mySig && !state.mySig) { state.mySig = data.mySig; drawImageToMyPad(data.mySig); }
+                    // Chữ ký: bản đổi sau cùng thắng (máy chưa có chữ ký thì nhận luôn)
+                    if (data.mySig && (!state.mySig || (data.sigAt || 0) > (state.mySigAt || 0))) {
+                        state.mySig = data.mySig; state.mySigAt = data.sigAt || 0; drawImageToMyPad(data.mySig);
+                    }
                     const seen = new Set(state.history.map(x => x.text + '|' + x.time));
                     state.history = [...state.history, ...(data.history || []).filter(x => !seen.has(x.text + '|' + x.time))].slice(0, 200);
                     state.mem = { ...(data.mem || {}), ...(state.mem || {}) };
+                    // Danh bạ thêm tay: gộp theo mã liên hệ, máy này chưa có thì thêm vào
+                    let added = 0;
+                    for (const c of data.contacts || []) {
+                        if (state.contacts.some(x => x.id === c.id)) continue;
+                        state.contacts.push({ ...c, status: 'off', local: true }); added++;
+                    }
+                    if (added) { saveChats(); renderContacts(); renderConvs(); toast(`📇 Đã đồng bộ ${added} liên hệ từ thiết bị khác`); }
                     if (!$('#view-profile').classList.contains('hidden')) renderProfile();
                 }
+                if (ver) state.vaultVer = ver;
             } catch (e) { }
-            state.vaultReady = true;
+            vaultBusy = false;
+            // Lần đầu đăng nhập ở máy này: đẩy dữ liệu sẵn có của máy lên để máy khác cũng có
+            if (!state.vaultReady) { state.vaultReady = true; vaultSave(); }
         }
 
         // Giao diện thật khi đăng nhập qua máy chủ LAN
@@ -3736,6 +3777,7 @@
         };
         $('#mySave').onclick = () => {
             state.mySig = myPad().toDataURL('image/png');
+            state.mySigAt = Date.now();
             vaultSave();
             addHistory('🖊️', 'Cập nhật chữ ký đồ họa', 'Hồ sơ cá nhân');
             if (doc()?.signerIdx === 0) loadSignerSig();

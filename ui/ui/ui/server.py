@@ -370,7 +370,8 @@ class Handler(BaseHTTPRequestHandler):
         uid = self.current_user()
         if not uid:
             return self.send_json({"error": "Phiên đăng nhập đã hết hạn"}, 401)
-        self.send_json({"env": self.store.users[uid].get("vault")})
+        user = self.store.users[uid]
+        self.send_json({"env": user.get("vault"), "ver": user.get("vaultVer", 0)})
 
     def handle_vault_put(self, body):
         uid = self.current_user()
@@ -380,9 +381,15 @@ class Handler(BaseHTTPRequestHandler):
         if not isinstance(env, dict) or str(uid) not in env.get("keys", {}):
             return self.send_json({"error": "Dữ liệu không hợp lệ"}, 400)
         with self.store.cond:
-            self.store.users[uid]["vault"] = env
+            user = self.store.users[uid]
+            user["vault"] = env
+            # Số phiên bản tăng mỗi lần lưu; máy khác của cùng tài khoản thấy số mới trong /api/sync thì tải lại
+            user["vaultVer"] = user.get("vaultVer", 0) + 1
+            self.store.rseq += 1  # đánh thức các máy đang chờ đồng bộ
             self.store.save()
-        self.send_json({"ok": True})
+            self.store.cond.notify_all()
+            ver = user["vaultVer"]
+        self.send_json({"ok": True, "ver": ver})
 
     def handle_logout(self, body):
         key = hashlib.sha256(self.headers.get("X-Token", "").encode()).hexdigest()
@@ -491,6 +498,7 @@ class Handler(BaseHTTPRequestHandler):
             others = [i for i in store.users if i != uid and i not in friends and i not in pending]
             others.sort(key=lambda i: (-len(friends & store.friends_of(i)), store.users[i]["name"].lower()))
             data = {"seq": store.seq, "rseq": store.rseq, "groups": my_groups, "messages": messages, "total": len(store.users),
+                    "vault": store.users[uid].get("vaultVer", 0),
                     "receipts": {i: store.delivered.get(i, 0) for i in people},
                     "users": [{**public_user(store, store.users[i]), "friend": i in friends} for i in people],
                     "incoming": [brief_user(store, f) for f, t in store.requests if t == uid],

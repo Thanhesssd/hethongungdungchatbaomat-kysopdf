@@ -22,6 +22,45 @@ def write_url(url):
         f.write(url)
     print(f"\nĐịa chỉ Internet của máy chủ: {url}")
     print("Đã đưa vào mã QR mời và mã QR kết bạn. Giữ cửa sổ này mở trong lúc dùng.\n", flush=True)
+    publish_directory(url)
+
+
+def publish_directory(public):
+    """Ghi địa chỉ hiện tại vào may-chu.json rồi đẩy lên GitHub, để app bản GitHub Pages tự kết nối máy chủ này
+    trên mọi thiết bị (Wi-Fi, 4G/5G) mà không cần gõ địa chỉ. Tắt bằng biến môi trường LANCHAT_KHONG_DAY_GITHUB=1."""
+    import json
+    import time
+    import urllib.request
+    if os.environ.get("LANCHAT_KHONG_DAY_GITHUB"):
+        return
+    try:
+        with urllib.request.urlopen(f"http://localhost:{LOCAL_PORT}/api/health", timeout=5) as r:
+            health = json.load(r)
+    except Exception:
+        health = {}
+    data = {"id": health.get("id"), "public": public, "lan": health.get("lan", []), "at": int(time.time())}
+    path = os.path.join(BASE_DIR, "may-chu.json")
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=1)
+
+    def git(*args):
+        return subprocess.run(["git", *args], cwd=BASE_DIR, capture_output=True, text=True,
+                              encoding="utf-8", errors="replace", timeout=180)
+    try:
+        if git("rev-parse", "--is-inside-work-tree").returncode:
+            return
+        git("add", "may-chu.json")
+        if not git("diff", "--cached", "--name-only", "--", "may-chu.json").stdout.strip():
+            return print("Địa chỉ trên GitHub đã đúng, không cần cập nhật.", flush=True)
+        # Chỉ commit đúng file địa chỉ, không đụng các thay đổi khác đang làm dở
+        git("commit", "-m", "Cập nhật địa chỉ máy chủ", "--", "may-chu.json")
+        r = git("push", "origin", "HEAD")
+        if r.returncode == 0:
+            print("✅ Đã cập nhật địa chỉ lên GitHub: thiết bị mở app bản GitHub sẽ tự kết nối sau khoảng 1 phút.", flush=True)
+        else:
+            print("⚠ Không đẩy được địa chỉ lên GitHub: " + (r.stderr.strip().splitlines() or ["?"])[-1], flush=True)
+    except Exception as e:
+        print(f"⚠ Không cập nhật được địa chỉ lên GitHub: {e}", flush=True)
 
 
 def main():
