@@ -213,6 +213,7 @@
         .demo-note { margin: .6rem auto 0; max-width: 92%; font-size: .78rem; text-align: center; color: var(--amber); background: var(--panel); border: 1px dashed var(--amber); border-radius: 10px; padding: .45rem .7rem; }
         .demo-bar { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; padding: .55rem 1.4rem; background: var(--panel-2); border-bottom: 1px solid var(--border); color: var(--amber); font-size: .84rem; font-weight: 600; }
         .demo-bar span { flex: 1; min-width: 200px; }
+        .is-mobile .desktop-only { display: none !important; }
         .check-row { display: flex; gap: .55rem; align-items: center; padding: .3rem 0; }
 
         .ca-status { display: flex; gap: .7rem; align-items: center; padding: .7rem .8rem; border-radius: 10px; background: var(--panel-2); border: 1px solid var(--border); font-size: .84rem; }
@@ -480,7 +481,7 @@
             </nav>
             <div class="me">
                 <div class="avatar" id="meAvatar" style="background:#2563eb">A</div>
-                <div><b id="meName">Nguyễn Văn An</b><small><span class="dot on"></span> <span id="meAddr">192.168.1.10</span></small></div>
+                <div><b id="meName">Nguyễn Văn An</b><small><span class="dot on"></span> <span id="meAddr">Chưa kết nối máy chủ</span></small></div>
             </div>
         </aside>
 
@@ -499,7 +500,7 @@
             <!-- Trang cá nhân -->
             <div class="demo-bar hidden" id="demoBar">
                 <span>⚠ Bản minh họa: chưa kết nối máy chủ LAN, nên không kết bạn hay nhắn tin được với máy khác.</span>
-                <a class="btn sm" href="http://localhost:8000/" title="Dùng khi đang ở chính máy chạy máy chủ">🖥️ Máy này là máy chủ</a>
+                <a class="btn sm desktop-only" href="http://localhost:8000/" title="Dùng khi đang ở chính máy chạy máy chủ">🖥️ Máy này là máy chủ</a>
                 <button class="btn sm" type="button" data-discover>🔍 Tự tìm máy chủ</button>
                 <button class="btn sm primary" type="button" data-connect>🔌 Kết nối máy chủ LAN</button>
             </div>
@@ -510,7 +511,7 @@
                         <div class="grow">
                             <div class="muted" id="pWelcome"></div>
                             <h2 id="pName"></h2>
-                            <div class="muted" style="font-size:.84rem"><span id="pAddr">Nhân viên · 192.168.1.10:54321</span> · <span class="mono" id="pFp"></span></div>
+                            <div class="muted" style="font-size:.84rem"><span id="pAddr">Bản minh họa · chưa kết nối máy chủ</span> · <span class="mono" id="pFp"></span></div>
                         </div>
                         <div class="chips">
                             <span class="chip green">✓ Mật khẩu SHA‑256</span>
@@ -746,7 +747,7 @@
                         <div class="card-b">
                             <div class="profile">
                                 <div class="avatar" id="accAvatar" style="background:#2563eb"></div>
-                                <div><b id="accName" style="font-size:1.05rem"></b><br><span class="muted" id="accAddr">Nhân viên · 192.168.1.10</span></div>
+                                <div><b id="accName" style="font-size:1.05rem"></b><br><span class="muted" id="accAddr">Bản minh họa · chưa kết nối máy chủ</span></div>
                             </div>
                             <dl class="kv" style="margin-top:1rem">
                                 <dt>Mã băm mật khẩu</dt><dd class="mono" id="accHash"></dd>
@@ -1299,6 +1300,9 @@
         }
 
         // Trang tĩnh (GitHub) kết nối tới máy chủ LAN đã lưu; trang mở từ máy chủ dùng chính máy chủ đó
+        // Điện thoại không chạy được máy chủ: ẩn các nút chỉ dành cho máy tính chạy server.py
+        if (/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)) document.documentElement.classList.add('is-mobile');
+
         // ============ Chế độ mạng yếu (vệ tinh, 3G, sóng chập chờn) ============
         // Trình duyệt không cho biết đang dùng vệ tinh hay không, nên app đo độ trễ thật của các lần gọi máy chủ.
         const latencies = [];
@@ -1472,6 +1476,8 @@
                 netStatus('on', routeLabel());
                 $('#caLink').classList.remove('hidden');
                 $('#connectLink').classList.add('hidden');
+                // Khách mở từ mã QR mời: đưa thẳng tới màn hình đăng ký
+                if (location.hash === '#join') { history.replaceState(null, '', location.pathname); state.joinInvite = true; }
                 const pairing = parsePair(location.hash);
                 if (pairing) { state.pairing = true; pairLogin(pairing); }
                 if (location.hash === '#root-ca') caModal();
@@ -1483,6 +1489,10 @@
                     : '🟢 Đã kết nối máy chủ LAN. Tài khoản và tin nhắn dùng được trên mọi máy trong mạng.';
             } catch (e) { }
             if (!state.pairing) await tryResume();
+            if (state.joinInvite && $('#appScreen').classList.contains('hidden')) {
+                setMode('register');
+                toast('👋 Bạn được mời vào máy chủ này. Hãy tạo tài khoản để kết bạn và trò chuyện');
+            }
         })();
 
         async function publishKeys() {
@@ -1789,7 +1799,7 @@
             const ip = host.replace(/:8443$/, '');
             const r = loadRoutes() || {};
             const pubHost = r.public ? r.public.replace(/^https:\/\//, '').replace(/\/$/, '') : '';
-            const direct = r.public ? r.public.replace(/\/?$/, '/') : `https://${host}/`;
+            const direct = (r.public ? r.public.replace(/\/?$/, '/') : `https://${host}/`) + '#join';
             const viaPages = `${PAGES_APP}#server=${[ip, ...(r.lan || []).filter(x => x !== host && !x.startsWith('127.')), pubHost].filter(Boolean).join(',')}`;
             const qr = qrcode(0, 'M');
             qr.addData(direct);
@@ -2883,7 +2893,7 @@
                 if (has(t, '(toi|em|minh) thich gi'))
                     return m.facts.like ? `${cap(p.you)} nói thích ${m.facts.like}.` : `${cap(p.you)} chưa kể ${p.self} nghe ${p.you} thích gì.`;
                 if (has(t, '(toi|em|minh) (dang )?o dau'))
-                    return m.facts.place ? `${cap(p.you)} nói đang ở ${m.facts.place}.` : `${cap(p.you)} chưa kể ${p.self} nghe. Theo mạng LAN thì ${p.you} ở máy 192.168.1.10.`;
+                    return m.facts.place ? `${cap(p.you)} nói đang ở ${m.facts.place}.` : `${cap(p.you)} chưa kể ${p.self} nghe. Theo mạng LAN thì ${p.you} ở máy ${state.lanIp || 'chưa kết nối máy chủ'}.`;
                 if (has(t, 'nho gi', 'ghi chu gi', 'ghi nho gi', 'nho nhung gi'))
                     return m.notes.length ? `${cap(p.self)} đang ghi nhớ:\n${m.notes.map(n => '• ' + n).join('\n')}` : `${cap(p.self)} chưa có ghi chú nào từ ${p.you}.`;
                 return null;
@@ -3018,7 +3028,7 @@
             $('#contactRows').innerHTML = rows.map(c => `
                 <tr>
                     <td><div class="person">${avatarHtml(c.name)}<div><b>${esc(c.name)}</b><br><small class="muted">${esc(c.role)}</small></div></div></td>
-                    <td class="mono">${c.real ? c.ip : c.ip + ':54321'}</td>
+                    <td class="mono">${c.real ? c.ip : 'Liên hệ mẫu'}</td>
                     <td><span class="dot ${c.status}"></span> ${c.status === 'on' ? 'Online' : c.status === 'busy' ? 'Bận' : 'Offline'}</td>
                     <td class="mono muted" style="font-size:.75rem">${fmtFp(c.fp)}</td>
                     <td><button class="btn sm" data-chat="${c.id}">💬 Nhắn tin</button>${c.real ? ` <button class="btn sm danger" data-unfriend="${c.id}">Hủy kết bạn</button>` : ''}</td>
