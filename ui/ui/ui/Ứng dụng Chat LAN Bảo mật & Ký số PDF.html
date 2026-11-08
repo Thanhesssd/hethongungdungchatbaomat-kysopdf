@@ -2221,6 +2221,14 @@
             const host = new URL(base).host;
             const certBtn = `<a class="btn sm" href="${esc(base)}" target="_blank" rel="noopener">Mở ${esc(host)} ở tab mới</a>`;
             const caBtn = `<a class="btn sm" href="${esc(base)}#root-ca" target="_blank" rel="noopener">Cài chứng thư gốc</a>`;
+            // Địa chỉ kết thúc bằng .1 hoặc .254 gần như luôn là router/modem Wi‑Fi, không phải máy chủ LAN Chat
+            const ip = new URL(base).hostname;
+            if (isIp(ip) && !ip.startsWith('127.') && /\.(1|254)$/.test(ip)) return `<b>⚠ ${esc(ip)} thường là địa chỉ của router/modem Wi‑Fi, không phải máy chủ.</b>
+                <ol class="pair-steps" style="margin-top:.3rem">
+                    <li>Trên máy chạy máy chủ, mở app và bấm <b>📡 Chia sẻ máy chủ</b> để xem đúng IP, ví dụ <span class="mono">192.168.8.106</span>.</li>
+                    <li>Hoặc trên máy đó mở Command Prompt, gõ <span class="mono">ipconfig</span>, lấy dòng <b>IPv4 Address</b> (không lấy dòng Default Gateway).</li>
+                    <li>Hoặc bấm <b>🔍 Tự tìm máy chủ</b> để app tự dò.</li>
+                </ol>`;
             return kind === 'unreachable'
                 ? `<b>Không tới được máy ${esc(host)}.</b> Thường do:
                     <ol class="pair-steps" style="margin-top:.3rem">
