@@ -32,6 +32,8 @@ MAX_FAILS = 5
 MAX_SIGNUPS_PER_HOUR = 10
 PAIR_SECONDS = 120
 # Trang được phép dùng máy chủ này từ địa chỉ khác (bản trên GitHub Pages)
+PUBLIC_URL_FILE = os.path.join(DATA_DIR, "public_url.txt")
+SERVER_ID_FILE = os.path.join(DATA_DIR, "server_id")
 ALLOWED_ORIGINS = {"https://thanhesssd.github.io"} | set(filter(None, os.environ.get("LANCHAT_ORIGINS", "").split(",")))
 LOCK_SECONDS = 60
 SESSION_SECONDS = 30 * 24 * 3600
@@ -54,6 +56,7 @@ class Store:
         self.signups = {}
         self.pairs = {}
         self.last_seen = {}
+        self.recent_mids = {}  # (tài khoản, mã tin) -> seq, để không lưu trùng khi gửi lại
         self.delivered = {}  # ID tài khoản -> seq tin cuối cùng máy đó đã xác nhận nhận được
         self.rseq = 0  # tăng mỗi khi có xác nhận mới, để đánh thức máy gửi đang chờ
         if os.path.exists(DB_PATH):
@@ -128,13 +131,13 @@ class Handler(BaseHTTPRequestHandler):
 
     def cors_headers(self):
         origin = self.headers.get("Origin", "")
-        if origin in ALLOWED_ORIGINS:
+        if origin_allowed(origin):
             self.send_header("Access-Control-Allow-Origin", origin)
             self.send_header("Vary", "Origin")
 
     def do_OPTIONS(self):
         # Trình duyệt hỏi trước khi trang GitHub gọi vào máy chủ trong mạng nội bộ
-        if not urlparse(self.path).path.startswith("/api/") or self.headers.get("Origin", "") not in ALLOWED_ORIGINS:
+        if not urlparse(self.path).path.startswith("/api/") or not origin_allowed(self.headers.get("Origin", "")):
             self.send_response(403)
             self.send_header("Content-Length", "0")
             self.end_headers()
@@ -176,7 +179,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         url = urlparse(self.path)
         if url.path == "/api/health":
-            return self.send_json({"ok": True, "ip": primary_ip(), "port": PORT})
+            return self.send_json({"ok": True, "ip": primary_ip(), "port": PORT, "id": server_id(),
+                                   "lan": [f"{ip}:{PORT}" for ip in local_ips() if not ip.startswith("127.")],
+                                   "public": public_url()})
         if url.path == "/ca.crt":
             return self.serve_ca()
         if url.path == "/api/pair/status":
@@ -388,7 +393,9 @@ class Handler(BaseHTTPRequestHandler):
         text = clean_name(query.get("q", [""])[0]).lower()
         store = self.store
         with store.cond:
-            found = [u for u in store.users.values() if u["id"] != uid and text in u["name"].lower()]
+            # Tìm theo tên, hoặc theo mã số tài khoản (gõ 1001 hoặc #1001)
+            num = text.lstrip("#")
+            found = [u for u in store.users.values() if u["id"] != uid and (text in u["name"].lower() or (num.isdigit() and num == str(u["id"])))]
             data = [{**brief_user(store, u["id"]), "relation": store.relation(uid, u["id"])} for u in found[:30]]
         self.send_json({"users": data})
 
@@ -467,10 +474,17 @@ class Handler(BaseHTTPRequestHandler):
                 allowed = pair(uid, to) in store.friends
             if not allowed:
                 return self.send_json({"error": "Hai bạn cần kết bạn trước khi nhắn tin"}, 403)
+            mid = str(body.get("mid", ""))[:64]
+            if mid and (uid, mid) in store.recent_mids:
+                return self.send_json({"ok": True, "seq": store.recent_mids[(uid, mid)], "duplicate": True})
             store.seq += 1
             msg = {"seq": store.seq, "from": uid, "fromName": store.users[uid]["name"], "ts": int(time.time() * 1000), "env": body["env"]}
             msg.update({"group": group} if group is not None else {"to": to})
             store.messages.append(msg)
+            if mid:
+                store.recent_mids[(uid, mid)] = msg["seq"]
+                if len(store.recent_mids) > 5000:
+                    store.recent_mids.pop(next(iter(store.recent_mids)))
             store.save()
             store.cond.notify_all()
         self.send_json({"ok": True, "seq": msg["seq"]})
@@ -536,6 +550,35 @@ class Server(ThreadingHTTPServer):
         # Trình duyệt đóng tab giữa chừng là chuyện bình thường, không cần báo lỗi
         if not isinstance(sys.exc_info()[1], (ConnectionError, ssl.SSLError, TimeoutError)):
             super().handle_error(request, client_address)
+
+
+def public_url():
+    """Địa chỉ Internet của máy chủ: biến LANCHAT_PUBLIC_URL (tên miền cố định), hoặc file do chia_se_internet.py ghi."""
+    url = os.environ.get("LANCHAT_PUBLIC_URL", "").strip()
+    if not url and os.path.exists(PUBLIC_URL_FILE):
+        with open(PUBLIC_URL_FILE, encoding="utf-8") as f:
+            url = f.read().strip()
+    return url.rstrip("/") or None
+
+
+def server_id():
+    """Mã cố định của máy chủ, để app biết các địa chỉ khác nhau cùng trỏ về một máy chủ."""
+    if not os.path.exists(SERVER_ID_FILE):
+        os.makedirs(DATA_DIR, exist_ok=True)
+        with open(SERVER_ID_FILE, "w", encoding="utf-8") as f:
+            f.write(secrets.token_hex(8))
+    with open(SERVER_ID_FILE, encoding="utf-8") as f:
+        return f.read().strip()
+
+
+def origin_allowed(origin):
+    if not origin:
+        return False
+    own = {f"https://{ip}:{PORT}" for ip in local_ips()} | {f"http://localhost:{LOCAL_PORT}", f"http://127.0.0.1:{LOCAL_PORT}"}
+    pub = public_url()
+    if pub:
+        own.add(pub)
+    return origin in ALLOWED_ORIGINS or origin in own
 
 
 def primary_ip():

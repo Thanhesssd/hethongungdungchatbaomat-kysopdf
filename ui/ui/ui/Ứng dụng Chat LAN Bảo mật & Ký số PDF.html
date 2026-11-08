@@ -1251,10 +1251,11 @@
             const c = state.contacts.find(x => x.id === cid);
             if (!c) return;
             if (c.real || c.group) {
-                try { await sendReal(c, text); }
+                const mid = crypto.randomUUID();
+                try { await sendReal(c, text, mid); }
                 catch (err) {
                     if (err.status && err.status < 500) { toast(err.message); $('#msgInput').value = text; return; }
-                    state.outbox.push({ cid, text, ts: Date.now() });
+                    state.outbox.push({ cid, text, mid, ts: Date.now() });
                     saveChats(); renderMsgs(); renderConvs();
                     setConn(false);
                     toast('📶 Mạng đang gián đoạn. Tin sẽ tự gửi khi có kết nối lại');
@@ -1279,7 +1280,9 @@
 
         async function api(path, body) {
             const ctl = new AbortController();
-            const timer = setTimeout(() => ctl.abort(), 35000);
+            const isPoll = path.startsWith('sync') && path.includes('wait=1');
+            const timer = setTimeout(() => ctl.abort(), (isPoll ? 25000 : 10000) + (state.weak ? 30000 : 0));
+            const t0 = performance.now();
             const r = await fetch((state.apiBase || '') + 'api/' + path, {
                 signal: ctl.signal,
                 method: body ? 'POST' : 'GET',
@@ -1287,13 +1290,122 @@
                 body: body ? JSON.stringify(body) : undefined,
             });
             clearTimeout(timer);
+            // Chỉ đo các yêu cầu nhẹ; đăng nhập/đăng ký chậm do băm mật khẩu, không phải do mạng
+            if (!isPoll && /^(sync|ack|users|send|health)/.test(path)) noteLatency(performance.now() - t0);
             const d = await r.json().catch(() => ({}));
             if (!r.ok) throw Object.assign(new Error(d.error || 'Máy chủ không phản hồi'), { status: r.status });
             return d;
         }
 
         // Trang tĩnh (GitHub) kết nối tới máy chủ LAN đã lưu; trang mở từ máy chủ dùng chính máy chủ đó
-        const savedServer = () => { try { return (localStorage.getItem('lanchat-server') || '').replace(/[.,;:\s]+$/, ''); } catch (e) { return ''; } };
+        // ============ Chế độ mạng yếu (vệ tinh, 3G, sóng chập chờn) ============
+        // Trình duyệt không cho biết đang dùng vệ tinh hay không, nên app đo độ trễ thật của các lần gọi máy chủ.
+        const latencies = [];
+        function noteLatency(ms) {
+            latencies.push(ms);
+            if (latencies.length > 8) latencies.shift();
+            const sorted = [...latencies].sort((a, b) => a - b);
+            const median = sorted[Math.floor(sorted.length / 2)];
+            const forced = (() => { try { return localStorage.getItem('lanchat-weak'); } catch (e) { return null; } })();
+            const weak = forced === 'on' ? true : forced === 'off' ? false : latencies.length >= 3 && median > 700 || (state.weak && median > 450);
+            if (weak !== !!state.weak) {
+                state.weak = weak;
+                if (weak) toast('🐢 Mạng chậm: đã bật chế độ mạng yếu (chờ lâu hơn, nén tin nhắn)');
+                if (state.server && state.connOk) netStatus('on', routeLabel());
+            }
+        }
+        function networkKind() {
+            if (state.weak) return '🐢 Mạng chậm';
+            const c = navigator.connection;
+            if (c?.type === 'cellular' || ['2g', '3g'].includes(c?.effectiveType)) return '📶 Di động';
+            return null;
+        }
+
+        // Nén chữ trước khi mã hóa (dữ liệu đã mã hóa thì không nén được nữa)
+        async function deflate(text) {
+            const s = new Blob([enc.encode(text)]).stream().pipeThrough(new CompressionStream('deflate-raw'));
+            return new Uint8Array(await new Response(s).arrayBuffer());
+        }
+        async function inflate(bytes) {
+            const s = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+            return new TextDecoder().decode(await new Response(s).arrayBuffer());
+        }
+
+        // ============ Kết nối Mọi nơi: nhiều đường tới cùng một máy chủ ============
+        // lanchat-servers = { id, lan: ['192.168.1.10:8443', ...], public: 'https://...' }
+        function loadRoutes() {
+            try {
+                const r = JSON.parse(localStorage.getItem('lanchat-servers') || 'null');
+                if (r && (r.lan?.length || r.public)) return r;
+            } catch (e) { }
+            let one = '';
+            try { one = (localStorage.getItem('lanchat-server') || '').replace(/[.,;:\s]+$/, ''); } catch (e) { }
+            return one ? (isIp(one) ? { lan: [one] } : { public: 'https://' + one.replace(/^https?:\/\//, '') }) : null;
+        }
+        function saveRoutes(r) {
+            try { localStorage.setItem('lanchat-servers', JSON.stringify(r)); } catch (e) { }
+        }
+        // Gộp địa chỉ mới vào danh sách đã lưu; khác máy chủ (id khác) thì thay hẳn
+        function rememberRoutes(health) {
+            if (!health?.id) return;
+            const old = loadRoutes() || {};
+            const same = !old.id || old.id === health.id;
+            const lan = [...new Set([...(health.lan || []), ...(same ? old.lan || [] : [])])].slice(0, 8);
+            saveRoutes({ id: health.id, lan, public: health.public || (same ? old.public : null) || null });
+        }
+        function addRoutesFromLink(hosts) {
+            const r = loadRoutes() || {};
+            const lan = new Set(r.lan || []);
+            let pub = r.public || null;
+            for (const raw of hosts) {
+                const h = raw.trim().replace(/[.,;:]+$/, '').replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+                if (!h) continue;
+                if (isIp(h)) lan.add(/:\d+$/.test(h) ? h : h + ':8443'); else pub = 'https://' + h;
+            }
+            saveRoutes({ ...r, lan: [...lan], public: pub });
+        }
+        const savedServer = () => { const r = loadRoutes(); return r ? (r.lan?.[0] || (r.public || '').replace(/^https:\/\//, '')) : ''; };
+
+        // Gọi /api/health tới mọi đường cùng lúc; ưu tiên mạng nội bộ, chỉ dùng Internet khi không có đường LAN nào
+        async function pickServer() {
+            const r = loadRoutes();
+            if (!r) return null;
+            const tries = [
+                ...(r.lan || []).map(h => ({ base: serverBase(h), kind: 'lan' })),
+                ...(r.public ? [{ base: r.public.replace(/\/?$/, '/'), kind: 'internet' }] : []),
+            ];
+            const results = await Promise.all(tries.map(t => probe(t.base, 2500).then(health => ({ ...t, health }), () => null)));
+            const ok = results.filter(x => x && (!r.id || !x.health.id || x.health.id === r.id));
+            return ok.find(x => x.kind === 'lan') || ok[0] || null;
+        }
+        const routeKind = () => state.routeKind || (location.protocol === 'https:' && !isIp(location.hostname) && !state.apiBase ? 'internet' : 'lan');
+        const routeLabel = () => (routeKind() === 'internet' ? '🌐 Internet · ' : '🏠 Mạng nội bộ · ') + serverHost() + (networkKind() ? ' · ' + networkKind() : '');
+
+        // Đổi mạng (Wi‑Fi ⇄ 4G/5G) hoặc mất kết nối: chọn lại đường tốt nhất, giữ nguyên phiên đăng nhập
+        let roaming = false;
+        async function roam() {
+            if (roaming || !state.server || !loadRoutes()) return false;
+            roaming = true;
+            try {
+                const best = await pickServer();
+                if (!best) return false;
+                const here = location.origin + '/';
+                const base = best.base === here ? '' : best.base;
+                rememberRoutes(best.health);
+                if (base !== (state.apiBase || '') || best.kind !== state.routeKind) {
+                    state.apiBase = base;
+                    state.routeKind = best.kind;
+                    state.connOk = null;
+                    setConn(true);
+                    toast(best.kind === 'lan' ? '🏠 Đã chuyển sang mạng nội bộ' : '🌐 Đã chuyển sang kết nối Internet');
+                }
+                return true;
+            } finally { roaming = false; }
+        }
+        window.addEventListener('online', () => roam().then(resyncNow));
+        navigator.connection?.addEventListener?.('change', () => { roam().then(resyncNow); if (state.server && state.connOk) netStatus('on', routeLabel()); });
+        // Đang đi đường Internet thì thỉnh thoảng thử quay về mạng nội bộ cho nhanh
+        setInterval(() => { if (state.server && state.routeKind === 'internet' && !document.hidden) roam(); }, 60000);
         // Máy A mở app bằng localhost thì hiện IP mạng thật của máy, là địa chỉ máy B cần nhập
         const serverHost = () => state.apiBase ? new URL(state.apiBase).host
             : ['localhost', '127.0.0.1'].includes(location.hostname) && state.lanIp ? `${state.lanIp} · máy này làm máy chủ` : location.host;
@@ -1301,7 +1413,7 @@
         const serverBase = host => `https://${/:\d+$/.test(host) || !isIp(host) ? host : host + ':8443'}/`;
         async function probe(base, ms = 5000) {
             const ctl = new AbortController();
-            const t = setTimeout(() => ctl.abort(), ms);
+            const t = setTimeout(() => ctl.abort(), ms + (state.weak ? 5000 : 0));
             try {
                 const r = await fetch(base + 'api/health', { signal: ctl.signal, cache: 'no-store' });
                 if (!r.ok) throw new Error();
@@ -1312,19 +1424,22 @@
         (async () => {
             // Chờ toàn bộ mã của trang nạp xong rồi mới kiểm tra máy chủ và phiên đã lưu
             await new Promise(r => setTimeout(r));
-            const invited = (location.hash.match(/#server=([\w.:-]+)/) || [])[1];
+            const params = new URLSearchParams(location.hash.slice(1));
+            const invited = [params.get('server'), params.get('lan')].filter(Boolean).join(',');
             if (invited) {
-                try { localStorage.setItem('lanchat-server', invited.replace(/[.,;:]+$/, '')); } catch (e) { }
-                history.replaceState(null, '', location.pathname);
-                toast(`📡 Đang kết nối tới máy chủ ${invited}…`);
+                addRoutesFromLink(invited.split(','));
+                const keep = params.get('add') ? `#add=${params.get('add')}` : '';
+                history.replaceState(null, '', location.pathname + keep);
+                toast(`📡 Đang kết nối tới máy chủ ${savedServer()}…`);
             }
             let health = null;
             if (location.protocol !== 'file:') health = await probe('').catch(() => null);
+            if (health) state.routeKind = isIp(location.hostname) || ['localhost', '127.0.0.1'].includes(location.hostname) || location.protocol === 'http:' ? 'lan' : 'internet';
             if (!health && savedServer() && location.protocol === 'https:') {
                 const base = serverBase(savedServer());
-                netStatus('busy', `Đang kết nối tới ${savedServer()}…`);
-                health = await probe(base).catch(() => null);
-                if (health) state.apiBase = base;
+                netStatus('busy', `Đang tìm đường kết nối tới máy chủ…`);
+                const best = await pickServer();
+                if (best) { health = best.health; state.apiBase = best.base; state.routeKind = best.kind; }
                 else {
                     $('#serverNote').textContent = `⚠ Không kết nối được máy chủ ${savedServer()}. App sẽ tự thử lại, hoặc bấm "Kết nối máy chủ LAN".`;
                     netStatus('off', `Mất kết nối máy chủ ${savedServer()}`, true);
@@ -1334,9 +1449,11 @@
             try {
                 if (!health) throw new Error('demo');
                 state.server = true;
-                netStatus('on', `Máy chủ LAN ${serverHost()}`);
                 state.lanIp = health.ip;
                 state.lanPort = health.port;
+                rememberRoutes(health);
+                state.publicUrl = health.public || null;
+                netStatus('on', routeLabel());
                 $('#caLink').classList.remove('hidden');
                 $('#connectLink').classList.add('hidden');
                 const pairing = parsePair(location.hash);
@@ -1389,13 +1506,14 @@
             const raw = crypto.getRandomValues(new Uint8Array(32));
             const iv = crypto.getRandomValues(new Uint8Array(12));
             const aes = await crypto.subtle.importKey('raw', raw, 'AES-GCM', false, ['encrypt']);
-            const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, aes, enc.encode(text));
+            const zip = state.weak && text.length > 120 && window.CompressionStream;
+            const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, aes, zip ? await deflate(text) : enc.encode(text));
             const keys = {};
             for (const id of ids) {
                 const pub = id === state.me ? keyPair.publicKey : state.people[id]?.pub;
                 if (pub) keys[id] = b64(await crypto.subtle.encrypt({ name: 'RSA-OAEP' }, pub, raw));
             }
-            return { iv: b64(iv), ct: b64(ct), keys };
+            return { iv: b64(iv), ct: b64(ct), keys, ...(zip ? { z: 1 } : {}) };
         }
 
         async function openEnvelope(env) {
@@ -1403,14 +1521,15 @@
             if (!wrapped) throw new Error('no key');
             const raw = await crypto.subtle.decrypt({ name: 'RSA-OAEP' }, keyPair.privateKey, unb64(wrapped));
             const aes = await crypto.subtle.importKey('raw', raw, 'AES-GCM', false, ['decrypt']);
-            return new TextDecoder().decode(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(env.iv) }, aes, unb64(env.ct)));
+            const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(env.iv) }, aes, unb64(env.ct));
+            return env.z ? inflate(plain) : new TextDecoder().decode(plain);
         }
 
         // ============ Giữ kết nối và gửi lại tin khi mạng chập chờn ============
         function setConn(ok) {
             if (!state.server || state.connOk === ok) return;
             state.connOk = ok;
-            netStatus(ok ? 'on' : 'off', ok ? `Máy chủ LAN ${serverHost()}` : 'Mất kết nối máy chủ · đang tự thử lại…', !ok);
+            netStatus(ok ? 'on' : 'off', ok ? routeLabel() : 'Mất kết nối máy chủ · đang tìm đường kết nối khác…', !ok);
             if (ok) flushOutbox();
         }
 
@@ -1423,7 +1542,7 @@
                     const m = state.outbox[0];
                     const c = state.contacts.find(x => x.id === m.cid);
                     if (!c) { state.outbox.shift(); continue; }
-                    try { await sendReal(c, m.text); }
+                    try { await sendReal(c, m.text, m.mid || (m.mid = crypto.randomUUID())); }
                     catch (e) {
                         if (e.status && e.status < 500) { state.outbox.shift(); toast(`Không gửi được tin tới ${c.name}: ${e.message}`); continue; }
                         break;
@@ -1443,10 +1562,10 @@
         document.addEventListener('visibilitychange', () => { if (!document.hidden) resyncNow(); });
         setInterval(() => { if (state.outbox?.length) flushOutbox(); }, 5000);
 
-        async function sendReal(c, text) {
+        async function sendReal(c, text, mid = crypto.randomUUID()) {
             const ids = c.group ? c.members : [state.me, c.id];
             const env = await sealFor(ids, text);
-            await api('send', c.group ? { group: c.id, env } : { to: c.id, env });
+            await api('send', c.group ? { group: c.id, env, mid } : { to: c.id, env, mid });
         }
 
         async function applySync(d) {
@@ -1522,14 +1641,16 @@
         const refresh = async () => applySync(await api(`sync?since=${state.seq || 0}&rsince=${state.rseq ?? -1}&wait=0`));
 
         async function syncLoop() {
-            let wait = 0;
+            let wait = 0, fails = 0;
             while (true) {
                 try {
                     await applySync(await api(`sync?since=${state.seq || 0}&rsince=${state.rseq ?? -1}&wait=${wait}`));
                     wait = 1;
+                    fails = 0;
                     setConn(true);
                 } catch (e) {
                     setConn(false);
+                    if (!e.status && ++fails >= 2 && await roam()) { fails = 0; continue; }
                     if (e.status === 401) {
                         await clearSession();
                         toast('Phiên đăng nhập đã hết hạn. Hãy đăng nhập lại');
@@ -1596,12 +1717,12 @@
             $('#reqBadge').classList.toggle('hidden', !s.incoming.length);
             $('#sThird').textContent = s.incoming.length;
             $('#sFourth').textContent = s.total;
-            $('#netLabel').textContent = `Máy chủ LAN ${serverHost()} · ${s.total} tài khoản`;
+            if (state.connOk !== false) $('#netLabel').textContent = `${routeLabel()} · ${s.total} tài khoản`;
         }
 
         function friendSearchModal() {
             modal('Tìm và kết bạn', `
-                <div class="field"><label for="fSearch">Tên tài khoản</label><input class="input" id="fSearch" placeholder="Nhập tên người bạn muốn kết bạn"></div>
+                <div class="field"><label for="fSearch">Tên hoặc mã số tài khoản</label><input class="input" id="fSearch" placeholder="VD: Nguyễn Văn An hoặc 1001 · nhập tên người bạn muốn kết bạn"></div>
                 <div id="fResults"></div>`);
             const box = $('#fResults');
             const run = async () => {
@@ -1633,6 +1754,15 @@
 
         // ============ Kết bạn bằng mã QR ============
         // Mã là một đường dẫn: quét bằng app hoặc camera điện thoại đều mở đúng chỗ kết bạn
+        // ============ Địa chỉ LAN Chat của tài khoản ============
+        // Địa chỉ liên lạc cố định của tài khoản: tên@máy-chủ, kèm mã số. Không phụ thuộc IP của thiết bị.
+        function chatAddress() {
+            const r = loadRoutes() || {};
+            const host = r.public ? new URL(r.public).hostname : (r.lan?.[0] || serverHost()).replace(/:\d+$/, '').split(' ')[0];
+            const handle = (state.user || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/đ/gi, 'd').toLowerCase().replace(/[^a-z0-9]+/g, '.').replace(/^\.|\.$/g, '');
+            return `${handle || 'user'}@${host}`;
+        }
+
         // ============ Máy A chia sẻ máy chủ cho máy B ============
         // Mã QR là địa chỉ máy chủ của máy A. Máy B quét bằng camera là mở thẳng app trên máy A;
         // hoặc mở link GitHub kèm #server=IP để link GitHub tự kết nối vào máy A.
@@ -1641,8 +1771,10 @@
             const local = ['localhost', '127.0.0.1'].includes(location.hostname);
             const host = state.apiBase ? new URL(state.apiBase).host : local ? `${state.lanIp}:${state.lanPort}` : location.host;
             const ip = host.replace(/:8443$/, '');
-            const direct = `https://${host}/`;
-            const viaPages = `${PAGES_APP}#server=${ip}`;
+            const r = loadRoutes() || {};
+            const pubHost = r.public ? r.public.replace(/^https:\/\//, '').replace(/\/$/, '') : '';
+            const direct = r.public ? r.public.replace(/\/?$/, '/') : `https://${host}/`;
+            const viaPages = `${PAGES_APP}#server=${[ip, ...(r.lan || []).filter(x => x !== host && !x.startsWith('127.')), pubHost].filter(Boolean).join(',')}`;
             const qr = qrcode(0, 'M');
             qr.addData(direct);
             qr.make();
@@ -1657,7 +1789,8 @@
                 </ol>
                 <div class="field" style="margin-top:.6rem"><label>Link mời qua GitHub (gửi qua Zalo, Messenger…)</label>
                     <input class="input mono" id="inviteLink" readonly value="${esc(viaPages)}" style="font-size:.72rem"></div>
-                ${isIp(ip) ? '<p class="muted" style="font-size:.76rem">Địa chỉ này chỉ dùng được trong cùng Wi‑Fi. Máy dùng 4G/5G cần link Internet từ chia-se-internet.bat.</p>' : ''}`,
+                ${pubHost ? `<p style="font-size:.8rem">🌐 Địa chỉ Internet: <b class="mono">${esc(pubHost)}</b>. Mã QR và link mời dùng được cả khi máy B dùng 4G/5G; cùng Wi‑Fi thì app tự đi đường nội bộ.</p>`
+                    : '<p class="muted" style="font-size:.76rem">Địa chỉ này chỉ dùng được trong cùng Wi‑Fi. Để máy dùng 4G/5G kết nối được, chạy chia-se-internet.bat trên máy này rồi mở lại hộp này.</p>'}`,
                 `<button class="btn" id="copyIp">Sao chép IP</button><button class="btn" id="copyInvite">Sao chép link mời</button><button class="btn primary" data-close>Xong</button>`);
             const copy = async (text, done) => {
                 try { await navigator.clipboard.writeText(text); toast(done); }
@@ -1668,10 +1801,21 @@
         }
         $('#shareSrvBtn').onclick = shareServerModal;
 
+        // Link gửi qua tin nhắn: dùng trang GitHub kèm danh sách địa chỉ máy chủ, mở được ở mọi mạng
+        function friendLinkForSharing() {
+            const r = loadRoutes() || {};
+            const hosts = [...(r.lan || []).filter(x => !x.startsWith('127.')), r.public ? new URL(r.public).host : ''].filter(Boolean).join(',');
+            return `${PAGES_APP}#server=${hosts}&add=${state.code}`;
+        }
+
         function friendLink() {
             const local = ['localhost', '127.0.0.1'].includes(location.hostname);
             const host = state.apiBase ? new URL(state.apiBase).host : local ? `${state.lanIp}:${state.lanPort}` : location.host;
-            return `https://${host}/#add=${state.code}`;
+            const r = loadRoutes() || {};
+            const lan = (r.lan || []).filter(x => !x.startsWith('127.')).join(',');
+            // Có địa chỉ Internet thì dùng làm đường chính để quét bằng camera ở mạng nào cũng mở được
+            if (r.public) return `${r.public.replace(/\/$/, '')}/#add=${state.code}${r.id ? '&srv=' + r.id : ''}${lan ? '&lan=' + lan : ''}`;
+            return `https://${host}/#add=${state.code}${lan ? '&lan=' + lan : ''}`;
         }
 
         function myQrModal() {
@@ -1680,12 +1824,18 @@
             qr.make();
             modal('Mã QR kết bạn của tôi', `
                 <img class="qr-img" id="myQr" alt="Mã QR kết bạn của ${esc(state.user)}" src="${qr.createDataURL(6, 16)}">
-                <p style="text-align:center"><b>${esc(state.user)}</b></p>
-                <p class="muted" style="text-align:center;font-size:.8rem">Người khác quét mã này để gửi lời mời kết bạn tới bạn.</p>
+                <p style="text-align:center"><b>${esc(state.user)}</b><br><span class="mono" style="font-size:.82rem">${esc(chatAddress())} · ID ${state.me}</span></p>
+                <p class="muted" style="text-align:center;font-size:.8rem">Người khác quét mã này, hoặc tìm theo tên hay mã số ${state.me}, để gửi lời mời kết bạn tới bạn.</p>
+                <div style="display:flex;gap:.4rem;justify-content:center;flex-wrap:wrap"><button class="btn sm" type="button" id="copyFriendLink">Sao chép link mời kết bạn</button></div>
                 <p style="text-align:center;font-size:.82rem">Địa chỉ máy chủ: <b class="mono">${esc(friendLink().split('/')[2])}</b></p>
                 ${isIp(friendLink().split('/')[2]) ? '<p class="muted" style="text-align:center;font-size:.76rem">Địa chỉ này chỉ dùng được khi chung Wi‑Fi. Người dùng 4G/5G cần mở app qua link Internet của máy chủ rồi tạo mã QR ở đó.</p>' : ''}
                 <p class="muted" style="text-align:center;font-size:.76rem">Vân tay khóa: <span class="mono">${fmtFp(state.fingerprint)}</span></p>`,
                 `<button class="btn" id="newCode">Đổi mã QR</button><button class="btn primary" data-close>Xong</button>`);
+            $('#copyFriendLink').onclick = async () => {
+                const link = friendLinkForSharing();
+                try { await navigator.clipboard.writeText(link); toast('Đã sao chép link mời kết bạn. Gửi qua Zalo, Messenger hoặc SMS'); }
+                catch (e) { $('#copyFriendLink').insertAdjacentHTML('afterend', `<input class="input mono" readonly value="${esc(link)}" style="font-size:.7rem" onfocus="this.select()">`); toast('Nhấn Ctrl+C để sao chép link'); }
+            };
             $('#newCode').onclick = async () => {
                 try {
                     state.code = (await api('friend/code', {})).code;
@@ -1695,7 +1845,7 @@
             };
         }
 
-        const parseFriendCode = text => text.match(/#add=([\w-]+)/)?.[1] || null;
+        const parseFriendCode = text => text.match(/[#&]add=([\w-]+)/)?.[1] || null;
 
         let stopScanner = null;
         function stopScan() {
@@ -1755,9 +1905,12 @@
                 };
                 return true;
             }
-            const serverLink = (text.match(/^https:\/\/[^\s/#]+\/#add=[\w-]+$/) || [])[0];
+            const serverLink = (text.match(/^https:\/\/[^\s/#]+\/#add=[\w-]+(&[\w.:,=-]*)?$/) || [])[0];
             if (serverLink) {
                 stopScan();
+                // Mã QR có kèm các địa chỉ dự phòng (&lan=...): lưu lại để app tự chọn đường kết nối
+                const extra = new URLSearchParams(serverLink.split('#')[1]).get('lan');
+                if (extra) addRoutesFromLink([serverLink.split('/')[2], ...extra.split(',')]);
                 const host = serverLink.split('/')[2];
                 modal('Mã kết bạn của máy chủ LAN', `<p style="font-size:.86rem">Mã QR này thuộc máy chủ <b class="mono">${esc(host)}</b>. Bạn đang ở bản minh họa, cần vào cùng máy chủ đó thì mới gửi lời mời được.</p>
                     <div class="muted" id="fqDiag" style="font-size:.84rem">Đang kiểm tra kết nối tới máy chủ…</div>`,
@@ -1985,7 +2138,9 @@
         // ============ Ghi nhớ đăng nhập ============
         // Lưu phiên trong IndexedDB của trình duyệt: khóa được lưu dưới dạng CryptoKey, không lưu mật khẩu
         const SESSION_DB = 'lanchat-session';
-        const sessionId = () => state.apiBase || (location.origin === 'null' ? location.href.split('#')[0] : location.origin + location.pathname);
+        // Phiên gắn với máy chủ (theo mã máy chủ), không gắn với một địa chỉ, vì app có thể đổi đường kết nối
+        const legacySessionId = () => state.apiBase || (location.origin === 'null' ? location.href.split('#')[0] : location.origin + location.pathname);
+        const sessionId = () => { const id = state.server && loadRoutes()?.id; return id ? 'server:' + id : legacySessionId(); };
         function sessionStore(mode, work) {
             return new Promise((resolve, reject) => {
                 const open = indexedDB.open(SESSION_DB, 1);
@@ -2008,12 +2163,15 @@
             try { await sessionStore('readwrite', s => s.put(rec, sessionId())); } catch (e) { }
         }
         async function clearSession() {
-            try { await sessionStore('readwrite', s => s.delete(sessionId())); } catch (e) { }
+            try { await sessionStore('readwrite', s => { s.delete(legacySessionId()); return s.delete(sessionId()); }); } catch (e) { }
         }
 
         async function tryResume() {
             let rec;
-            try { rec = await sessionStore('readonly', s => s.get(sessionId())); } catch (e) { return; }
+            try {
+                rec = await sessionStore('readonly', s => s.get(sessionId()))
+                    || await sessionStore('readonly', s => s.get(legacySessionId()));
+            } catch (e) { return; }
             if (!rec || rec.server !== !!state.server) return;
             $('#loginBtn').disabled = true;
             if (rec.server) {
@@ -2461,8 +2619,8 @@
         function enterServerUi() {
             for (const c of state.contacts) if (!c.real && !c.group) c.role += ' · trả lời tự động';
             $('#meAddr').textContent = 'Máy chủ LAN';
-            $('#pAddr').textContent = 'Tài khoản trên máy chủ LAN';
-            $('#accAddr').textContent = 'Tài khoản trên máy chủ LAN';
+            $('#pAddr').textContent = `Địa chỉ LAN Chat: ${chatAddress()} · ID ${state.me}`;
+            $('#accAddr').textContent = `${chatAddress()} · ID ${state.me}`;
             const note = 'Bản sao đã mã hóa bằng mật khẩu của bạn được lưu trên máy chủ, để đăng nhập được trên máy khác';
             $('#pPrivNote').textContent = note;
             $('#aPrivNote').textContent = '🔒 ' + note;
@@ -2471,7 +2629,7 @@
             $('#shareSrvBtn').classList.remove('hidden');
             $('#demoBar').classList.add('hidden');
             $('#netDot').className = 'dot on';
-            $('#netLabel').textContent = 'Máy chủ LAN ' + serverHost();
+            $('#netLabel').textContent = routeLabel();
             $('#caCard').classList.remove('hidden');
             $('#syncBtn').classList.remove('hidden');
             $('#scanBtn').onclick = scanModal;

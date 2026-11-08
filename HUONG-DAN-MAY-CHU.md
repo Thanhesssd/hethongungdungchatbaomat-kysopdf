@@ -38,6 +38,29 @@ Không muốn cài đặt: bấm đúp `chay-may-chu.bat` mỗi lần cần dùn
 
 Mỗi máy khác nên cài chứng thư gốc một lần tại `https://<IP máy chủ>:8443/#root-ca` để không bị cảnh báo bảo mật.
 
+## Kết nối Toàn cầu (Wi‑Fi và 4G/5G)
+
+Máy chủ tự công bố mọi địa chỉ nội bộ của nó qua `/api/health`, kèm địa chỉ Internet nếu có. Mã QR và link mời chứa sẵn danh sách này; app thử tất cả, ưu tiên mạng nội bộ và tự chuyển sang Internet khi ra ngoài.
+
+**Link Internet tạm (không cần tên miền):** bấm đúp `chia-se-internet.bat`. Link `https://….trycloudflare.com` được ghi vào `data/public_url.txt` và tự đưa vào mã QR. Link đổi mỗi lần chạy lại, nên sau mỗi lần chạy cần gửi lại mã QR hoặc link mời.
+
+**Địa chỉ Internet cố định (cần một tên miền quản lý trên Cloudflare):**
+
+```
+cloudflared tunnel login
+cloudflared tunnel create lanchat
+cloudflared tunnel route dns lanchat chat.tenmien.vn
+```
+
+Sau đó đặt hai biến môi trường cho tài khoản Windows rồi chạy lại máy chủ và `chia-se-internet.bat`:
+
+```
+setx LANCHAT_TUNNEL lanchat
+setx LANCHAT_PUBLIC_URL https://chat.tenmien.vn
+```
+
+Đường hầm đi từ máy chủ ra ngoài, nên không cần mở cổng trên router hay IP tĩnh. Khi máy chủ đã ra Internet, các giới hạn chống dò mật khẩu (`MAX_FAILS`) và giới hạn đăng ký (`MAX_SIGNUPS_PER_HOUR`) vẫn được giữ.
+
 ## Nên làm thêm
 
 - **IP cố định:** đặt IP tĩnh cho máy chủ trong phần quản trị router (DHCP reservation), để địa chỉ không đổi giữa các ngày. Khi IP đổi, chỉ cần khởi động lại máy chủ: chứng chỉ tự cấp lại cho địa chỉ mới.
