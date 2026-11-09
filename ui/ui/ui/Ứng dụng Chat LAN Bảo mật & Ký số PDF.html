@@ -927,6 +927,61 @@
             </ol>`;
         }
 
+        // Đăng nhập khi chưa kết nối được máy chủ: máy này từng đăng nhập tài khoản này thì mở bằng dữ liệu đã lưu
+        // (bạn bè, tin nhắn, đã mã hóa bằng mật khẩu). Mật khẩu sai thì không giải mã được nên không vào được.
+        async function offlineServerLogin(name) {
+            const pass = $('#fPass').value, passHash = await sha256(pass), acct = name.toLowerCase();
+            const histId = await sha256(acct + ':' + passHash);
+            let raw = null;
+            try { raw = localStorage.getItem('lanchat-history:' + histId); } catch (e) { }
+            if (!raw || !savedServer()) return false;
+            const histKey = await deriveHistKey(pass, acct);
+            try {
+                const { iv, ct } = JSON.parse(raw);
+                await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(iv) }, histKey, unb64(ct));
+            } catch (e) { return false; }
+            await generateKeys();
+            await publishKeys();
+            Object.assign(state, {
+                server: true, offline: true, token: null, apiBase: serverBase(savedServer()), routeKind: isIp(savedServer()) ? 'lan' : 'internet',
+                user: name, passHash, histId, histKey, isNew: false, blank: true, people: {}, seen: new Set(),
+            });
+            mode = 'login';
+            await enterApp();
+            enterServerUi();
+            renderContacts();
+            netStatus('off', 'Đang dùng dữ liệu đã lưu · sẽ tự đồng bộ khi kết nối máy chủ', true);
+            toast(`✅ Đăng nhập thành công. Chào mừng ${state.user}! Tin nhắn mới sẽ tự gửi khi kết nối được máy chủ`);
+            reauthWhenOnline(name, pass, $('#fRemember').checked);
+            return true;
+        }
+
+        async function reauthWhenOnline(name, pass, remember) {
+            for (let i = 0; state.offline && !state.token; i++) {
+                await sleep(i < 6 ? 10000 : 30000);
+                state.stopDiscovery = true;
+                const best = await pickServer().catch(() => null);
+                state.stopDiscovery = false;
+                if (!best) continue;
+                Object.assign(state, { apiBase: best.base === location.origin + '/' ? '' : best.base, routeKind: best.kind });
+                rememberRoutes(best.health);
+                try {
+                    const fp = $('#fPass'); fp.value = pass; mode = 'login';
+                    await serverAuth(name);
+                    fp.value = '';
+                } catch (e) {
+                    if (e.status) { toast('Máy chủ đã bật nhưng chưa đăng nhập lại được: ' + e.message); return; }
+                    continue;
+                }
+                if (remember) await saveSession();
+                $('#pAddr').textContent = `Địa chỉ LAN Chat: ${chatAddress()} · ID ${state.me}`;
+                $('#accAddr').textContent = `${chatAddress()} · ID ${state.me}`;
+                vaultLoad();
+                syncLoop();
+                return;
+            }
+        }
+
         // Đăng nhập trên máy khác bằng Địa chỉ LAN Chat (ten@máy-chủ): tự kết nối đúng máy chủ trước
         async function connectFromAddress(host) {
             addRoutesFromLink([host]);
@@ -964,16 +1019,20 @@
             }
             // Từng dùng máy chủ mà giờ chưa kết nối được: không cho vào bản minh họa trống với cùng tên,
             // vì tài khoản, bạn bè và tin nhắn thật đang nằm trên máy chủ
-            if (!state.server && loadRoutes() && name !== SAMPLE_USER) {
+            if (!state.server && loadRoutes() && name !== SAMPLE_USER && !state.forceLocal) {
                 $('#loginBtn').disabled = true;
                 toast('📡 Đang kết nối lại máy chủ…');
                 const best = await pickServer().catch(() => null);
                 $('#loginBtn').disabled = false;
-                if (!best) return regResult(false, `Chưa kết nối được máy chủ. Tài khoản, bạn bè và tin nhắn của bạn vẫn an toàn trên máy chủ.`, '#fPass', unlockHelp());
-                // Máy chủ đã hoạt động lại: tải lại để vào đúng chế độ máy chủ rồi đăng nhập
-                toast('🟢 Đã kết nối lại máy chủ. Hãy đăng nhập lại');
-                setTimeout(() => location.reload(), 900);
-                return;
+                if (!best) {
+                    if (mode === 'login' && await offlineServerLogin(name)) return;
+                    state.forceLocal = true;
+                } else {
+                    // Máy chủ đã hoạt động lại: tải lại để vào đúng chế độ máy chủ rồi đăng nhập
+                    toast('🟢 Đã kết nối lại máy chủ. Hãy đăng nhập lại');
+                    setTimeout(() => location.reload(), 900);
+                    return;
+                }
             }
             formErr('');
             $('#loginBtn').disabled = true;
@@ -1002,6 +1061,14 @@
             if (state.server) {
                 try { await serverAuth(name); }
                 catch (err) {
+                    // Mất kết nối giữa chừng: vẫn vào được, không báo lỗi
+                    if (err instanceof TypeError || err.name === 'AbortError') {
+                        $('#steps').classList.add('hidden'); $('#loginBtn').disabled = false;
+                        if (mode === 'login' && await offlineServerLogin(name)) return;
+                        Object.assign(state, { server: false, apiBase: '', token: null, forceLocal: true });
+                        $('#loginForm').requestSubmit();
+                        return;
+                    }
                     const reason = err.name === 'OperationError' ? 'Không mở được khóa riêng. Hãy kiểm tra lại mật khẩu.' : regError(err);
                     regResult(false, reason, /đã có tài khoản/.test(err.message) ? '#fName' : '#fPass');
                     return;
@@ -1009,11 +1076,13 @@
             }
             if (mode === 'register') await regResult(true, state.server
                 ? 'Bạn có thể đăng nhập bằng tài khoản này trên mọi máy trong mạng.'
+                : state.forceLocal ? 'Tài khoản được tạo trên máy này, dùng được ngay không cần máy chủ.'
                 : 'Đây là chế độ minh họa: tài khoản chỉ có trên trình duyệt này.');
             if ($('#fRemember').checked) await saveSession(); else await clearSession();
             await enterApp();
             if (!state.server) $('#demoBar').classList.remove('hidden');
             if (mode === 'login') toast(`✅ Đăng nhập thành công. Chào mừng ${state.user}!`);
+            if (state.forceLocal) netStatus('off', 'Đang dùng trên máy này · chưa kết nối máy chủ', true);
             if (state.server) {
                 enterServerUi();
                 renderContacts();
@@ -1146,6 +1215,9 @@
                 const data = {
                     chats: state.chats, unread: state.unread,
                     extraContacts: state.contacts.filter(c => c.id > 100 && !c.real && !c.group), mem: state.mem || {}, seq: state.seq || 0, blank: !!state.blank, outbox: state.outbox,
+                    serverContacts: state.contacts.filter(c => c.real || c.group).map(c => ({ id: c.id, name: c.name, role: c.role, ip: c.ip, real: c.real, group: c.group, members: c.members, fp: c.fp })),
+                    me: state.server ? state.me : undefined, code: state.server ? state.code : undefined,
+                    people: Object.fromEntries(Object.values(state.people || {}).filter(p => p.pubB64).map(p => [p.id, { id: p.id, name: p.name, pubB64: p.pubB64 }])),
                 };
                 const iv = crypto.getRandomValues(new Uint8Array(12));
                 const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, state.histKey, enc.encode(JSON.stringify(data)));
@@ -1163,10 +1235,19 @@
                 const plainBuf = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: unb64(iv) }, state.histKey, unb64(ct));
                 const data = JSON.parse(new TextDecoder().decode(plainBuf));
                 for (const c of data.extraContacts || []) if (!state.contacts.some(x => x.id === c.id)) state.contacts.push(c);
+                // Bạn bè và nhóm đã lưu: hiện ngay cả khi chưa kết nối máy chủ, đồng bộ lại khi có kết nối
+                state.people ||= {};
+                for (const [id, p] of Object.entries(data.people || {})) {
+                    if (state.people[id]?.pub) continue;
+                    try { state.people[id] = { ...p, pub: await crypto.subtle.importKey('spki', unb64(p.pubB64), { name: 'RSA-OAEP', hash: 'SHA-256' }, true, ['encrypt']) }; } catch (e) { }
+                }
+                for (const c of data.serverContacts || []) if (!state.contacts.some(x => x.id === c.id))
+                    state.contacts.push({ ...c, status: 'off', pub: state.people[c.id]?.pub });
                 state.chats = data.chats || {};
                 state.unread = data.unread || {}; state.mem = data.mem || {}; state.seq = data.seq || 0;
                 if (data.blank) state.blank = true;
                 state.outbox = data.outbox || [];
+                if (state.offline && !state.me && data.me) { state.me = data.me; state.code = data.code; }
                 return Object.values(state.chats).reduce((a, l) => a + l.length, 0);
             } catch (e) { return 0; }
         }
@@ -1312,7 +1393,7 @@
             if (!c) return;
             if (c.real || c.group) {
                 const mid = crypto.randomUUID();
-                try { await sendReal(c, text, mid); }
+                try { if (!state.token) throw new TypeError('offline'); await sendReal(c, text, mid); }
                 catch (err) {
                     if (err.status && err.status < 500) { toast(err.message); $('#msgInput').value = text; return; }
                     state.outbox.push({ cid, text, mid, ts: Date.now() });
@@ -1645,12 +1726,16 @@
             if (!state.server || state.connOk === ok) return;
             state.connOk = ok;
             netStatus(ok ? 'on' : 'off', ok ? routeLabel() : 'Mất kết nối máy chủ · đang tìm đường kết nối khác…', !ok);
-            if (ok) flushOutbox();
+            if (ok) {
+                flushOutbox();
+                if (!state.vaultReady && state.token) vaultLoad();
+                if (state.offline) { state.offline = false; toast('🟢 Đã kết nối lại máy chủ, dữ liệu đã đồng bộ'); }
+            }
         }
 
         let flushing = false;
         async function flushOutbox() {
-            if (flushing || !state.outbox.length) return;
+            if (flushing || !state.outbox.length || !state.token) return;
             flushing = true;
             try {
                 while (state.outbox.length) {
@@ -2289,9 +2374,19 @@
                 rec = await sessionStore('readonly', s => s.get(sessionId()))
                     || await sessionStore('readonly', s => s.get(legacySessionId()));
             } catch (e) { return; }
-            if (!rec || rec.server !== !!state.server) return;
+            const rid = loadRoutes()?.id;
+            if (!rec && !state.server && rid) {
+                try { rec = await sessionStore('readonly', s => s.get('server:' + rid)); } catch (e) { }
+            }
+            if (!rec) return;
+            let offline = false;
+            if (rec.server && !state.server && savedServer()) {
+                offline = true;
+                Object.assign(state, { server: true, offline: true, apiBase: serverBase(savedServer()), routeKind: isIp(savedServer()) ? 'lan' : 'internet' });
+            } else if (rec.server !== !!state.server) return;
             $('#loginBtn').disabled = true;
-            if (rec.server) {
+            if (rec.server && offline) state.token = rec.token;
+            else if (rec.server) {
                 state.token = rec.token;
                 try { await api('users?q=' + encodeURIComponent('\u0000')); }
                 catch (e) {
@@ -2313,7 +2408,8 @@
             });
             mode = 'login';
             await enterApp();
-            toast(`👋 Chào mừng trở lại, ${state.user}!`);
+            toast(offline ? `👋 Chào mừng trở lại, ${state.user}! Đang dùng dữ liệu đã lưu, sẽ tự đồng bộ khi kết nối lại máy chủ`
+                : `👋 Chào mừng trở lại, ${state.user}!`);
             if (state.server) {
                 enterServerUi();
                 renderContacts();
@@ -2383,6 +2479,7 @@
                 window.removeEventListener('online', attempt);
                 // Máy chủ đã lưu hoạt động lại: chuyển hẳn sang máy chủ (tài khoản ghi nhớ sẽ tự đăng nhập)
                 netStatus('on', `Đã kết nối lại máy chủ ${new URL(base).host}`);
+                if (state.forceLocal && state.user) return toast('🟢 Máy chủ đã hoạt động. Đăng xuất rồi đăng nhập lại để dùng tài khoản trên máy chủ');
                 toast('🟢 Máy chủ đã hoạt động trở lại. Đang chuyển sang máy chủ…');
                 setTimeout(() => location.reload(), 1200);
             };
@@ -2406,6 +2503,7 @@
             state.discovering = false;
             if (!hit || state.server) return;
             addRoutesFromLink([hit.host]);
+            if (state.forceLocal && state.user) return toast(`🔍 Đã tìm thấy máy chủ ${hit.host}. Đăng xuất rồi đăng nhập lại để dùng máy chủ`);
             toast(`🔍 Đã tìm thấy máy chủ ${hit.host}. Đang kết nối…`);
             setTimeout(() => location.reload(), 1200);
         }
@@ -2823,10 +2921,11 @@
                     if (!$('#view-profile').classList.contains('hidden')) renderProfile();
                 }
                 if (ver) state.vaultVer = ver;
+                var vaultLoaded = true;
             } catch (e) { }
             vaultBusy = false;
             // Lần đầu đăng nhập ở máy này: đẩy dữ liệu sẵn có của máy lên để máy khác cũng có
-            if (!state.vaultReady) { state.vaultReady = true; vaultSave(); }
+            if (vaultLoaded && !state.vaultReady) { state.vaultReady = true; vaultSave(); }
         }
 
         // Giao diện thật khi đăng nhập qua máy chủ LAN
