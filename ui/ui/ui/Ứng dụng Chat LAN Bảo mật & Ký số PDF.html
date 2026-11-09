@@ -2050,8 +2050,9 @@
             const r = loadRoutes() || {};
             const lan = (r.lan || []).filter(x => !x.startsWith('127.')).join(',');
             // Có địa chỉ Internet thì dùng làm đường chính để quét bằng camera ở mạng nào cũng mở được
-            if (r.public) return `${r.public.replace(/\/$/, '')}/#add=${state.code}${r.id ? '&srv=' + r.id : ''}${lan ? '&lan=' + lan : ''}`;
-            return `https://${host}/#add=${state.code}${lan ? '&lan=' + lan : ''}`;
+            const all = [...new Set([host, ...lan.split(',')].filter(x => x && !x.startsWith('localhost')))];
+            if (r.public) all.push(new URL(r.public).host);
+            return `${PAGES_APP}#server=${all.join(',')}&add=${state.code}${r.id ? '&srv=' + r.id : ''}`;
         }
 
         function myQrModal() {
@@ -2128,7 +2129,10 @@
                 }
                 const linkHost = (text.match(/^https:\/\/([^\s/#]+)\//) || [])[1];
                 const here = state.apiBase ? new URL(state.apiBase).host : location.host;
-                const sameServer = !linkHost || linkHost === here
+                const r0 = loadRoutes() || {};
+                const srvId = (text.match(/[#&]srv=([\w-]+)/) || [])[1];
+                const sameServer = !linkHost || linkHost === here || /\.github\.io$/.test(linkHost)
+                    || (srvId && srvId === r0.id) || (r0.lan || []).includes(linkHost) || (r0.public && r0.public.includes(linkHost))
                     || (['localhost', '127.0.0.1'].includes(location.hostname) && linkHost === `${state.lanIp}:${state.lanPort}`);
                 if (sameServer) { onFriendCode(code); return true; }
                 stopScan();
@@ -2141,28 +2145,47 @@
                 };
                 return true;
             }
-            const serverLink = (text.match(/^https:\/\/[^\s/#]+\/#add=[\w-]+(&[\w.:,=-]*)?$/) || [])[0];
-            if (serverLink) {
+            const addCode = /^https:\/\//.test(text) ? parseFriendCode(text) : null;
+            if (addCode) {
                 stopScan();
-                // Mã QR có kèm các địa chỉ dự phòng (&lan=...): lưu lại để app tự chọn đường kết nối
-                const extra = new URLSearchParams(serverLink.split('#')[1]).get('lan');
-                if (extra) addRoutesFromLink([serverLink.split('/')[2], ...extra.split(',')]);
-                const host = serverLink.split('/')[2];
-                modal('Mã kết bạn của máy chủ LAN', `<p style="font-size:.86rem">Mã QR này thuộc máy chủ <b class="mono">${esc(host)}</b>. Bạn đang ở bản minh họa, cần vào cùng máy chủ đó thì mới gửi lời mời được.</p>
-                    <div class="muted" id="fqDiag" style="font-size:.84rem">Đang kiểm tra kết nối tới máy chủ…</div>`,
-                    `<button class="btn" data-close>Để sau</button><button class="btn primary" id="fqGo" disabled>Chuyển sang máy chủ và kết bạn</button>`);
-                const base = `https://${host}/`;
-                diagnose(base).then(d => {
+                let u = null;
+                try { u = new URL(text); } catch (e) { }
+                const hp = new URLSearchParams((u?.hash || '').slice(1));
+                const hosts = [...(hp.get('server') || '').split(','), ...(hp.get('lan') || '').split(',')].filter(Boolean);
+                if (u && !/\.github\.io$/.test(u.hostname)) hosts.unshift(u.host);
+                const srvId = hp.get('srv');
+                const r0 = loadRoutes();
+                if (srvId && r0?.id && r0.id !== srvId) saveRoutes({ id: srvId, lan: [], public: null });
+                addRoutesFromLink(hosts);
+                modal('Mã kết bạn của máy chủ LAN', `<p style="font-size:.86rem">Đang tìm đường kết nối tới máy chủ của người này (Wi‑Fi, địa chỉ mới nhất, Internet)…</p>
+                    <div class="muted" id="fqDiag" style="font-size:.84rem">⏳ Đang kết nối…</div>`,
+                    `<button class="btn" data-close>Để sau</button><button class="btn primary" id="fqGo" disabled>Vào máy chủ và kết bạn</button>`);
+                const go = () => {
+                    const r = loadRoutes() || {};
+                    const all = [...(r.lan || []), r.public ? new URL(r.public).host : ''].filter(Boolean).join(',');
+                    location.hash = `#server=${all}&add=${addCode}`;
+                    location.reload();
+                };
+                (async () => {
+                    dirAt = 0;
+                    await refreshDirectory().catch(() => false);
+                    state.stopDiscovery = true;
+                    const best = await pickServer().catch(() => null);
+                    state.stopDiscovery = false;
                     if (!$('#fqDiag')) return;
                     $('#fqGo').disabled = false;
-                    $('#fqDiag').innerHTML = d.ok ? `🟢 Máy chủ đang hoạt động. Bấm nút dưới, đăng ký hoặc đăng nhập, rồi lời mời kết bạn sẽ được gửi tiếp.`
-                        : diagnosisHtml(base, d.kind);
-                    if (!d.ok) $('#fqGo').textContent = 'Vẫn thử mở máy chủ';
-                });
-                $('#fqGo').onclick = () => {
-                    try { localStorage.setItem('lanchat-server', host.replace(/:8443$/, '')); } catch (e) { }
-                    location.href = serverLink;
-                };
+                    $('#fqGo').onclick = go;
+                    if (best) {
+                        rememberRoutes(best.health);
+                        $('#fqDiag').innerHTML = `🟢 Đã kết nối máy chủ (${best.kind === 'internet' ? 'qua Internet' : 'qua Wi‑Fi'}). Bấm nút dưới, đăng nhập hoặc đăng ký, lời mời kết bạn sẽ tự gửi.`;
+                        return;
+                    }
+                    const base = serverBase(hosts[0] || savedServer());
+                    const d = await diagnose(base).catch(() => ({ ok: false, kind: 'timeout' }));
+                    if (!$('#fqDiag')) return;
+                    $('#fqDiag').innerHTML = d.ok ? '🟢 Máy chủ đang hoạt động. Bấm nút dưới để vào và kết bạn.' : diagnosisHtml(base, d.kind) + unlockHelp();
+                    if (!d.ok) $('#fqGo').textContent = 'Vẫn thử vào máy chủ';
+                })();
                 return true;
             }
             const name = parseDemoCode(text);
