@@ -1125,7 +1125,7 @@
                 const code = parseFriendCode(location.hash);
                 if (code) {
                     history.replaceState(null, '', location.pathname);
-                    onFriendCode(code);
+                    onFriendCode(code, true);
                 }
             } else if (parseDemoCode(location.hash)) {
                 // Mở từ mã QR bằng camera điện thoại ở chế độ minh họa
@@ -1517,10 +1517,12 @@
             try {
                 const r = JSON.parse(localStorage.getItem('lanchat-servers') || 'null');
                 if (r) r.lan = (r.lan || []).filter(notRouter);
+                if (r && /\.github\.io/i.test(r.public || '')) r.public = null; // trang GitHub không phải máy chủ
                 if (r && (r.lan?.length || r.public)) return r;
             } catch (e) { }
             let one = '';
             try { one = (localStorage.getItem('lanchat-server') || '').replace(/[.,;:\s]+$/, ''); } catch (e) { }
+            if (/\.github\.io/i.test(one)) one = '';
             if (one && !notRouter(one)) { try { localStorage.removeItem('lanchat-server'); } catch (e) { } return null; }
             return one ? (isIp(one) ? { lan: [one] } : { public: 'https://' + one.replace(/^https?:\/\//, '') }) : null;
         }
@@ -1541,7 +1543,7 @@
             let pub = r.public || null;
             for (const raw of hosts) {
                 const h = raw.trim().replace(/[.,;:]+$/, '').replace(/^https?:\/\//, '').replace(/\/.*$/, '');
-                if (!h) continue;
+                if (!h || /\.github\.io$/i.test(h.replace(/:\d+$/, '')) || /^localhost(:|$)/.test(h)) continue;
                 if (isIp(h)) lan.add(/:\d+$/.test(h) ? h : h + ':8443'); else pub = 'https://' + h;
             }
             saveRoutes({ ...r, lan: [...lan], public: pub });
@@ -2050,7 +2052,7 @@
             const r = loadRoutes() || {};
             const lan = (r.lan || []).filter(x => !x.startsWith('127.')).join(',');
             // Có địa chỉ Internet thì dùng làm đường chính để quét bằng camera ở mạng nào cũng mở được
-            const all = [...new Set([host, ...lan.split(',')].filter(x => x && !x.startsWith('localhost')))];
+            const all = [...new Set([host, ...lan.split(',')].filter(x => x && !x.startsWith('localhost') && !/\.github\.io$/.test(x)))];
             if (r.public) all.push(new URL(r.public).host);
             return `${PAGES_APP}#server=${all.join(',')}&add=${state.code}${r.id ? '&srv=' + r.id : ''}`;
         }
@@ -2180,7 +2182,9 @@
                         $('#fqDiag').innerHTML = `🟢 Đã kết nối máy chủ (${best.kind === 'internet' ? 'qua Internet' : 'qua Wi‑Fi'}). Bấm nút dưới, đăng nhập hoặc đăng ký, lời mời kết bạn sẽ tự gửi.`;
                         return;
                     }
-                    const base = serverBase(hosts[0] || savedServer());
+                    const real = hosts.find(x => !/\.github\.io$/.test(x)) || savedServer();
+                    if (!real) { $('#fqDiag').innerHTML = '🔴 Máy chủ của người này đang tắt hoặc chưa chia sẻ. Hãy nhờ họ bật máy chủ (chay-may-chu.bat) rồi quét lại.'; return; }
+                    const base = serverBase(real);
                     const d = await diagnose(base).catch(() => ({ ok: false, kind: 'timeout' }));
                     if (!$('#fqDiag')) return;
                     $('#fqDiag').innerHTML = d.ok ? '🟢 Máy chủ đang hoạt động. Bấm nút dưới để vào và kết bạn.' : diagnosisHtml(base, d.kind) + unlockHelp();
@@ -2308,13 +2312,21 @@
             $('#camAllow').onclick = () => startCamera();
         }
 
-        async function onFriendCode(code) {
+        async function onFriendCode(code, auto = false) {
             stopScan();
             try {
                 const u = await api('friend/scan', { code });
                 if (u.relation === 'friend') {
                     closeModal();
                     toast(`${u.name} đã là bạn bè của bạn`);
+                    return;
+                }
+                if (auto && u.relation !== 'outgoing') {
+                    const r = await api('friend/scan', { code, confirm: true });
+                    closeModal();
+                    await refresh();
+                    if (r.relation === 'friend') { toast(`🎉 Đã kết bạn với ${u.name}`); go('chat'); openChat(u.id); }
+                    else toast(`📨 Đã tự gửi lời mời kết bạn tới ${u.name}. Khi họ đồng ý, hai bạn nhắn tin được ngay`);
                     return;
                 }
                 modal('Kết bạn', `<div class="person" style="padding:.4rem 0">${avatarHtml(u.name)}<b>${esc(u.name)}</b></div>
@@ -2475,7 +2487,7 @@
                 const code = parseFriendCode(location.hash);
                 if (code) {
                     history.replaceState(null, '', location.pathname);
-                    onFriendCode(code);
+                    onFriendCode(code, true);
                 }
             } else $('#demoBar').classList.remove('hidden');
         }
