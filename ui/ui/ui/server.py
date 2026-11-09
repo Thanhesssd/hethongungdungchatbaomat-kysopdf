@@ -8,6 +8,7 @@ import os
 import re
 import secrets
 import socket
+import sqlite3
 import ssl
 import sys
 import threading
@@ -19,6 +20,18 @@ from urllib.parse import parse_qs, unquote, urlparse
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.environ.get("LANCHAT_DATA") or os.path.join(BASE_DIR, "data")
 DB_PATH = os.path.join(DATA_DIR, "server.json")
+# Cơ sở dữ liệu SQL (SQLite): tài khoản, bạn bè, nhóm, tin nhắn, két dữ liệu. server.json cũ được tự chuyển sang lần đầu.
+SQL_PATH = os.path.join(DATA_DIR, "lanchat.db")
+SQL_SCHEMA = """
+CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, name TEXT NOT NULL, data TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS groups (id INTEGER PRIMARY KEY, name TEXT, data TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS messages (seq INTEGER PRIMARY KEY, sender INTEGER, recipient INTEGER, data TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS friends (a INTEGER NOT NULL, b INTEGER NOT NULL, PRIMARY KEY (a, b));
+CREATE TABLE IF NOT EXISTS requests (a INTEGER NOT NULL, b INTEGER NOT NULL, PRIMARY KEY (a, b));
+CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, user_id INTEGER, expires REAL);
+CREATE TABLE IF NOT EXISTS delivered (user_id INTEGER PRIMARY KEY, seq INTEGER);
+CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
+"""
 CERT_PATH = os.path.join(DATA_DIR, "cert.pem")
 KEY_PATH = os.path.join(DATA_DIR, "key.pem")
 CA_CERT_PATH = os.path.join(DATA_DIR, "ca.pem")
@@ -122,9 +135,15 @@ class Store:
         self.recent_mids = {}  # (tài khoản, mã tin) -> seq, để không lưu trùng khi gửi lại
         self.delivered = {}  # ID tài khoản -> seq tin cuối cùng máy đó đã xác nhận nhận được
         self.rseq = 0  # tăng mỗi khi có xác nhận mới, để đánh thức máy gửi đang chờ
-        if os.path.exists(DB_PATH):
+        self.sql_lock = threading.Lock()
+        db = None
+        # Trên đám mây vẫn dùng server.json (được đồng bộ lên Supabase); trên máy thường dùng SQL
+        if not CLOUD and os.path.exists(SQL_PATH):
+            db = self.sql_read()
+        elif os.path.exists(DB_PATH):
             with open(DB_PATH, encoding="utf-8") as f:
                 db = json.load(f)
+        if db:
             self.users = {int(k): v for k, v in db["users"].items()}
             self.groups = {int(k): v for k, v in db["groups"].items()}
             self.messages = db["messages"]
@@ -133,9 +152,61 @@ class Store:
             self.requests = {tuple(p) for p in db.get("requests", [])}
             self.sessions = {k: tuple(v) for k, v in db.get("sessions", {}).items() if v[1] > time.time()}
             self.delivered = {int(k): v for k, v in db.get("delivered", {}).items()}
+        if not CLOUD and not os.path.exists(SQL_PATH):
+            self.save()  # chuyển dữ liệu cũ (server.json) sang SQL, giữ nguyên file cũ làm bản sao lưu
+
+    def sql_connect(self):
+        os.makedirs(DATA_DIR, exist_ok=True)
+        con = sqlite3.connect(SQL_PATH, timeout=30)
+        con.executescript(SQL_SCHEMA)
+        return con
+
+    def sql_read(self):
+        con = self.sql_connect()
+        try:
+            q = lambda s: con.execute(s).fetchall()
+            meta = dict(q("SELECT key, value FROM meta"))
+            return {
+                "users": {k: json.loads(v) for k, v in q("SELECT id, data FROM users")},
+                "groups": {k: json.loads(v) for k, v in q("SELECT id, data FROM groups")},
+                "messages": [json.loads(v) for (v,) in q("SELECT data FROM messages ORDER BY seq")],
+                "seq": int(meta.get("seq", 0)),
+                "friends": q("SELECT a, b FROM friends"),
+                "requests": q("SELECT a, b FROM requests"),
+                "sessions": {t: [u, e] for t, u, e in q("SELECT token, user_id, expires FROM sessions")},
+                "delivered": dict(q("SELECT user_id, seq FROM delivered")),
+            }
+        finally:
+            con.close()
+
+    def sql_write(self):
+        with self.sql_lock:
+            con = self.sql_connect()
+            try:
+                with con:
+                    for t in ("users", "groups", "messages", "friends", "requests", "sessions", "delivered"):
+                        con.execute(f"DELETE FROM {t}")
+                    con.executemany("INSERT INTO users VALUES (?, ?, ?)",
+                                    [(k, u.get("name", ""), json.dumps(u)) for k, u in self.users.items()])
+                    con.executemany("INSERT INTO groups VALUES (?, ?, ?)",
+                                    [(k, g.get("name", ""), json.dumps(g)) for k, g in self.groups.items()])
+                    con.executemany("INSERT OR REPLACE INTO messages VALUES (?, ?, ?, ?)",
+                                    [(m.get("seq", i), m.get("from") if isinstance(m.get("from"), int) else None,
+                                      m.get("to") if isinstance(m.get("to"), int) else m.get("group") if isinstance(m.get("group"), int) else None, json.dumps(m))
+                                     for i, m in enumerate(self.messages)])
+                    con.executemany("INSERT OR IGNORE INTO friends VALUES (?, ?)", sorted(self.friends))
+                    con.executemany("INSERT OR IGNORE INTO requests VALUES (?, ?)", sorted(self.requests))
+                    con.executemany("INSERT INTO sessions VALUES (?, ?, ?)", [(t, v[0], v[1]) for t, v in self.sessions.items()])
+                    con.executemany("INSERT INTO delivered VALUES (?, ?)", list(self.delivered.items()))
+                    con.execute("INSERT OR REPLACE INTO meta VALUES ('seq', ?)", (str(self.seq),))
+            finally:
+                con.close()
 
     def save(self):
         os.makedirs(DATA_DIR, exist_ok=True)
+        if not CLOUD:
+            self.sql_write()
+            return
         tmp = DB_PATH + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump({"users": self.users, "groups": self.groups, "messages": self.messages, "seq": self.seq,

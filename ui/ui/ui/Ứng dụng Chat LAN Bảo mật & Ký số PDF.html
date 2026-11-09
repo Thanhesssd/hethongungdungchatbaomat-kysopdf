@@ -955,6 +955,38 @@
             return true;
         }
 
+        async function upgradeWhenServerBack(name, pass, remember) {
+            for (let i = 0; state.forceLocal && state.user; i++) {
+                await sleep(i < 6 ? 10000 : 30000);
+                if (!loadRoutes()) continue;
+                state.stopDiscovery = true;
+                const best = await pickServer().catch(() => null);
+                state.stopDiscovery = false;
+                if (!best || !state.forceLocal) continue;
+                const keep = { server: state.server, apiBase: state.apiBase, passHash: state.passHash, histId: state.histId, histKey: state.histKey };
+                try {
+                    Object.assign(state, { server: true, apiBase: best.base === location.origin + '/' ? '' : best.base, routeKind: best.kind });
+                    rememberRoutes(best.health);
+                    const acct = name.toLowerCase();
+                    state.passHash = await sha256(pass);
+                    state.histKey = await deriveHistKey(pass, acct);
+                    state.histId = await sha256(acct + ':' + state.passHash);
+                    const fp = $('#fPass'); fp.value = pass; mode = 'login';
+                    await serverAuth(name);
+                    fp.value = '';
+                } catch (e) {
+                    Object.assign(state, keep);
+                    if (e.status) return; // máy chủ không có tài khoản này: giữ tài khoản trên máy
+                    continue;
+                }
+                await saveSession();
+                if (!remember) try { sessionStorage.setItem('lanchat-once', '1'); } catch (e) { }
+                toast('🟢 Máy chủ đã bật. Đang mở lại danh bạ và tin nhắn của bạn…');
+                setTimeout(() => location.reload(), 1200);
+                return;
+            }
+        }
+
         async function reauthWhenOnline(name, pass, remember) {
             for (let i = 0; state.offline && !state.token; i++) {
                 await sleep(i < 6 ? 10000 : 30000);
@@ -1081,7 +1113,10 @@
             await enterApp();
             if (!state.server) $('#demoBar').classList.remove('hidden');
             if (mode === 'login') toast(`✅ Đăng nhập thành công. Chào mừng ${state.user}!`);
-            if (state.forceLocal) netStatus('off', 'Đang dùng trên máy này · chưa kết nối máy chủ', true);
+            if (state.forceLocal) {
+                netStatus('off', 'Máy chủ đang tắt · danh bạ và tin nhắn sẽ tự hiện lại khi máy chủ bật', true);
+                if (mode === 'login') upgradeWhenServerBack(name, $('#fPass').value, $('#fRemember').checked);
+            }
             if (state.server) {
                 enterServerUi();
                 renderContacts();
@@ -2407,6 +2442,7 @@
             });
             mode = 'login';
             await enterApp();
+            try { if (sessionStorage.getItem('lanchat-once')) { sessionStorage.removeItem('lanchat-once'); await clearSession(); } } catch (e) { }
             toast(offline ? `👋 Chào mừng trở lại, ${state.user}! Đang dùng dữ liệu đã lưu, sẽ tự đồng bộ khi kết nối lại máy chủ`
                 : `👋 Chào mừng trở lại, ${state.user}!`);
             if (state.server) {
@@ -2478,7 +2514,7 @@
                 window.removeEventListener('online', attempt);
                 // Máy chủ đã lưu hoạt động lại: chuyển hẳn sang máy chủ (tài khoản ghi nhớ sẽ tự đăng nhập)
                 netStatus('on', `Đã kết nối lại máy chủ ${new URL(base).host}`);
-                if (state.forceLocal && state.user) return toast('🟢 Máy chủ đã hoạt động. Đăng xuất rồi đăng nhập lại để dùng tài khoản trên máy chủ');
+                if (state.forceLocal && state.user) return;
                 toast('🟢 Máy chủ đã hoạt động trở lại. Đang chuyển sang máy chủ…');
                 setTimeout(() => location.reload(), 1200);
             };

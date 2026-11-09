@@ -67,6 +67,10 @@ setx LANCHAT_PUBLIC_URL https://chat.tenmien.vn
 
 Đường hầm đi từ máy chủ ra ngoài, nên không cần mở cổng trên router hay IP tĩnh. Khi máy chủ đã ra Internet, các giới hạn chống dò mật khẩu (`MAX_FAILS`) và giới hạn đăng ký (`MAX_SIGNUPS_PER_HOUR`) vẫn được giữ.
 
+## Cơ sở dữ liệu SQL
+
+Tài khoản, bạn bè, nhóm, tin nhắn (đã mã hóa) và két dữ liệu được lưu trong cơ sở dữ liệu SQLite `data/lanchat.db`. Lần đầu chạy bản mới, dữ liệu cũ trong `data/server.json` được tự chuyển sang; file cũ vẫn giữ lại làm bản sao lưu. Sao lưu: tắt máy chủ rồi chép `data/lanchat.db` sang nơi khác. Mở xem bằng DB Browser for SQLite (bảng `users`, `friends`, `messages`…).
+
 ## Nên làm thêm
 
 - **IP cố định:** đặt IP tĩnh cho máy chủ trong phần quản trị router (DHCP reservation), để địa chỉ không đổi giữa các ngày. Khi IP đổi, chỉ cần khởi động lại máy chủ: chứng chỉ tự cấp lại cho địa chỉ mới.
