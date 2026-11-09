@@ -597,13 +597,37 @@ class Server(ThreadingHTTPServer):
             super().handle_error(request, client_address)
 
 
+_PUBLIC_CHECK = {"url": None, "alive": False, "at": 0.0}
+
+
 def public_url():
-    """Địa chỉ Internet của máy chủ: biến LANCHAT_PUBLIC_URL (tên miền cố định), hoặc file do chia_se_internet.py ghi."""
-    url = os.environ.get("LANCHAT_PUBLIC_URL", "").strip()
-    if not url and os.path.exists(PUBLIC_URL_FILE):
-        with open(PUBLIC_URL_FILE, encoding="utf-8") as f:
-            url = f.read().strip()
-    return url.rstrip("/") or None
+    """Địa chỉ Internet của máy chủ: biến LANCHAT_PUBLIC_URL (tên miền cố định), hoặc file do chia_se_internet.py ghi.
+    Link tạm từ file chỉ được công bố khi còn sống: đường hầm tắt đột ngột thì file vẫn còn nhưng link đã chết."""
+    url = os.environ.get("LANCHAT_PUBLIC_URL", "").strip().rstrip("/")
+    if url:
+        return url
+    if not os.path.exists(PUBLIC_URL_FILE):
+        return None
+    with open(PUBLIC_URL_FILE, encoding="utf-8") as f:
+        url = f.read().strip().rstrip("/")
+    if not url:
+        return None
+    check = _PUBLIC_CHECK
+    if check["url"] != url or time.time() - check["at"] > 60:
+        check.update(url=url, at=time.time())
+        threading.Thread(target=_check_public, args=(url,), daemon=True).start()
+    return url if check["alive"] and check["url"] == url else None
+
+
+def _check_public(url):
+    import urllib.request
+    try:
+        with urllib.request.urlopen(url + "/api/health", timeout=10) as r:
+            alive = json.load(r).get("id") == server_id()
+    except Exception:
+        alive = False
+    if _PUBLIC_CHECK["url"] == url:
+        _PUBLIC_CHECK["alive"] = alive
 
 
 def server_id():
