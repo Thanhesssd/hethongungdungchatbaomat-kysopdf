@@ -454,7 +454,6 @@
                 </form>
                 <p class="muted" style="font-size:.84rem;margin-top:.8rem"><span id="switchText">Chưa có tài khoản?</span> <button type="button" class="link-btn" id="switchBtn">Đăng ký ngay</button></p>
                 <p class="muted" id="serverNote" style="font-size:.78rem;margin-top:.8rem">Đang dùng chế độ minh họa trên trình duyệt này. Chạy server.py để nhiều người dùng chung.</p>
-                <button type="button" class="link-btn" id="connectLink" data-connect style="font-size:.84rem">🔌 Kết nối máy chủ LAN để nhắn tin với máy khác</button>
                 <button type="button" class="link-btn hidden" id="caLink" style="font-size:.84rem">🛡️ Cài chứng thư gốc (Root CA) để hết cảnh báo Chrome</button>
                 <div class="reg-result hidden" id="regResult" role="status" aria-live="polite"></div>
                 <div class="steps hidden" id="steps">
@@ -991,7 +990,7 @@
                 lanIp: best.health.ip, lanPort: best.health.port, publicUrl: best.health.public || null });
             rememberRoutes(best.health);
             netStatus('on', routeLabel());
-            $('#connectLink').classList.add('hidden');
+            $('#connectLink')?.classList.add('hidden');
             $('#serverNote').textContent = `🟢 Đã kết nối máy chủ ${new URL(best.base).host}.`;
             return true;
         }
@@ -1640,7 +1639,7 @@
                 state.publicUrl = health.public || null;
                 netStatus('on', routeLabel());
                 $('#caLink').classList.remove('hidden');
-                $('#connectLink').classList.add('hidden');
+                $('#connectLink')?.classList.add('hidden');
                 // Khách mở từ mã QR mời: đưa thẳng tới màn hình đăng ký
                 if (location.hash === '#join') { history.replaceState(null, '', location.pathname); state.joinInvite = true; }
                 const pairing = parsePair(location.hash);
