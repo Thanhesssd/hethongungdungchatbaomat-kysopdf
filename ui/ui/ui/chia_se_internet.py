@@ -40,6 +40,15 @@ def publish_directory(public):
         health = {}
     data = {"id": health.get("id"), "public": public, "lan": health.get("lan", []), "at": int(time.time())}
     path = os.path.join(BASE_DIR, "may-chu.json")
+    # Giữ địa chỉ máy chủ đám mây (nếu đã có): app GitHub ưu tiên máy chủ đó vì nó luôn bật
+    try:
+        with open(path, encoding="utf-8") as f:
+            old = json.load(f)
+        for k in ("cloud", "cloudId"):
+            if old.get(k):
+                data[k] = old[k]
+    except (OSError, ValueError):
+        pass
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=1)
 

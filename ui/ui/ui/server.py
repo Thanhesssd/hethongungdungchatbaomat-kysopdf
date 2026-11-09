@@ -35,6 +35,69 @@ PAIR_SECONDS = 300  # đủ thời gian cho bước bỏ qua cảnh báo chứng
 PUBLIC_URL_FILE = os.path.join(DATA_DIR, "public_url.txt")
 SERVER_ID_FILE = os.path.join(DATA_DIR, "server_id")
 ALLOWED_ORIGINS = {"https://thanhesssd.github.io"} | set(filter(None, os.environ.get("LANCHAT_ORIGINS", "").split(",")))
+# Chạy trên máy chủ đám mây (Render tự đặt biến RENDER): HTTP thường sau proxy HTTPS của nhà cung cấp,
+# không cần chứng chỉ tự cấp, dữ liệu lưu lên Supabase vì ổ đĩa bị xóa mỗi lần máy chủ ngủ.
+CLOUD = bool(os.environ.get("RENDER") or os.environ.get("CLOUD") == "1")
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
+SUPABASE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
+CLOUD_KEYS = {"lanchat-server.json": DB_PATH, "lanchat-server_id": SERVER_ID_FILE}
+
+
+def _supabase(method, path, body=None):
+    import urllib.request
+    req = urllib.request.Request(f"{SUPABASE_URL}/rest/v1/{path}", method=method,
+                                 data=json.dumps(body).encode() if body is not None else None,
+                                 headers={"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}",
+                                          "Content-Type": "application/json",
+                                          "Prefer": "resolution=merge-duplicates,return=minimal"})
+    with urllib.request.urlopen(req, timeout=30) as r:
+        raw = r.read()
+    return json.loads(raw) if raw else None
+
+
+def cloud_pull():
+    """Lúc khởi động trên đám mây: tải dữ liệu từ Supabase về ổ đĩa tạm."""
+    if not (SUPABASE_URL and SUPABASE_KEY):
+        return 0
+    rows = _supabase("GET", "kv?select=key,value&key=in.(lanchat-server.json,lanchat-server_id)")
+    os.makedirs(DATA_DIR, exist_ok=True)
+    for row in rows:
+        path = CLOUD_KEYS.get(row["key"])
+        if not path:
+            continue
+        with open(path, "w", encoding="utf-8") as f:
+            if row["key"].endswith(".json"):
+                json.dump(row["value"], f)
+            else:
+                f.write(str(row["value"]))
+    return len(rows)
+
+
+_cloud_timer = {"t": None}
+_cloud_lock = threading.Lock()
+
+
+def cloud_push(delay=2.0):
+    """Sau mỗi lần lưu: gửi bản mới lên Supabase (gom lại 2 giây/lần). Không cấu hình Supabase thì bỏ qua."""
+    if not (CLOUD and SUPABASE_URL and SUPABASE_KEY):
+        return
+    with _cloud_lock:
+        if _cloud_timer["t"]:
+            _cloud_timer["t"].cancel()
+        _cloud_timer["t"] = threading.Timer(delay, _cloud_upload)
+        _cloud_timer["t"].daemon = True
+        _cloud_timer["t"].start()
+
+
+def _cloud_upload():
+    try:
+        with open(DB_PATH, encoding="utf-8") as f:
+            value = json.load(f)
+        _supabase("POST", "kv", {"key": "lanchat-server.json", "value": value,
+                                 "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat()})
+    except Exception as e:
+        log(f"Chưa lưu được dữ liệu lên Supabase ({e}), thử lại sau 10 giây")
+        cloud_push(10)
 LOCK_SECONDS = 60
 SESSION_SECONDS = 30 * 24 * 3600
 STATIC_TYPES = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8"}
@@ -79,6 +142,7 @@ class Store:
                        "friends": sorted(self.friends), "requests": sorted(self.requests), "sessions": self.sessions,
                        "delivered": self.delivered}, f)
         os.replace(tmp, DB_PATH)
+        cloud_push()
 
     def bump(self):
         self.seq += 1
@@ -184,6 +248,8 @@ class Handler(BaseHTTPRequestHandler):
     def client_ip(self):
         # Qua đường hầm Cloudflare mọi kết nối đều đến từ 127.0.0.1, địa chỉ thật nằm trong header
         ip = self.client_address[0]
+        if CLOUD:  # trên đám mây mọi kết nối đi qua proxy của nhà cung cấp
+            return (self.headers.get("X-Forwarded-For", "").split(",")[0].strip()) or ip
         return self.headers.get("CF-Connecting-IP", ip) if ip == "127.0.0.1" else ip
 
     def current_user(self):
@@ -194,9 +260,9 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         url = urlparse(self.path)
         if url.path == "/api/health":
-            return self.send_json({"ok": True, "ip": primary_ip(), "port": PORT, "id": server_id(),
-                                   "lan": [f"{ip}:{PORT}" for ip in local_ips() if not ip.startswith("127.")],
-                                   "public": public_url()})
+            return self.send_json({"ok": True, "ip": primary_ip(), "port": 443 if CLOUD else PORT, "id": server_id(),
+                                   "lan": [] if CLOUD else [f"{ip}:{PORT}" for ip in local_ips() if not ip.startswith("127.")],
+                                   "public": public_url(), "cloud": CLOUD})
         if url.path == "/ca.crt":
             return self.serve_ca()
         if url.path == "/api/pair/status":
@@ -212,6 +278,8 @@ class Handler(BaseHTTPRequestHandler):
         self.serve_static(unquote(url.path))
 
     def handle_ca(self):
+        if not os.path.exists(CA_CERT_PATH):  # trên đám mây: chứng chỉ HTTPS thật của nhà cung cấp, không cần cài gì
+            return self.send_json({"error": "Máy chủ đám mây dùng chứng chỉ HTTPS thật, không cần cài chứng thư gốc"}, 404)
         from cryptography import x509
         from cryptography.hazmat.primitives import hashes
 
@@ -223,6 +291,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def serve_ca(self):
         # Chỉ là chứng chỉ công khai, để máy khác cài một lần và không còn cảnh báo
+        if not os.path.exists(CA_CERT_PATH):
+            return self.send_json({"error": "Máy chủ đám mây không cần cài chứng thư gốc"}, 404)
         with open(CA_CERT_PATH, "rb") as f:
             body = f.read()
         self.send_response(200)
@@ -606,6 +676,8 @@ def public_url():
     url = os.environ.get("LANCHAT_PUBLIC_URL", "").strip().rstrip("/")
     if url:
         return url
+    if CLOUD:
+        return os.environ.get("RENDER_EXTERNAL_URL", "").rstrip("/") or None
     if not os.path.exists(PUBLIC_URL_FILE):
         return None
     with open(PUBLIC_URL_FILE, encoding="utf-8") as f:
@@ -755,6 +827,8 @@ def main():
             stream.reconfigure(encoding="utf-8", errors="replace")
         except (AttributeError, ValueError, OSError):
             pass
+    if CLOUD:
+        return main_cloud()
     ensure_certificate()
     Handler.store = Store()
     try:
@@ -791,6 +865,40 @@ def main():
     for ip in local_ips():
         log(f"  https://{ip}:{PORT}/")
     log(f"Cài chứng chỉ gốc một lần trên mỗi máy: https://{primary_ip()}:{PORT}/ca.crt")
+    server.serve_forever()
+
+
+def main_cloud():
+    """Chạy trên máy chủ đám mây (Render): luôn bật, không phụ thuộc laptop. HTTPS do nhà cung cấp lo."""
+    import signal
+    if SUPABASE_URL and SUPABASE_KEY:
+        try:
+            log(f"Đã tải {cloud_pull()} mục dữ liệu từ Supabase.")
+        except Exception as e:
+            # Không tải được thì dừng, tránh chạy với dữ liệu trống rồi ghi đè mất tài khoản trên Supabase
+            log(f"Không tải được dữ liệu từ Supabase: {e}")
+            sys.exit(1)
+    else:
+        log("⚠ Chưa đặt SUPABASE_URL / SUPABASE_SERVICE_KEY: dữ liệu sẽ mất khi máy chủ ngủ.")
+    Handler.store = Store()
+    first = not os.path.exists(SERVER_ID_FILE)
+    sid = server_id()
+    if first and SUPABASE_URL and SUPABASE_KEY:  # giữ mã máy chủ cố định qua các lần khởi động
+        try:
+            _supabase("POST", "kv", {"key": "lanchat-server_id", "value": sid})
+        except Exception as e:
+            log(f"Chưa lưu được mã máy chủ: {e}")
+
+    def stop(*_):
+        # Render gửi SIGTERM trước khi cho máy chủ ngủ: lưu ngay dữ liệu còn chờ
+        if _cloud_timer["t"]:
+            _cloud_timer["t"].cancel()
+            _cloud_upload()
+        sys.exit(0)
+    signal.signal(signal.SIGTERM, stop)
+    port = int(os.environ.get("PORT", 10000))
+    server = Server(("0.0.0.0", port), Handler)
+    log(f"Máy chủ LAN Chat đang chạy trên đám mây ({len(Handler.store.users)} tài khoản): {public_url() or 'cổng ' + str(port)}")
     server.serve_forever()
 
 

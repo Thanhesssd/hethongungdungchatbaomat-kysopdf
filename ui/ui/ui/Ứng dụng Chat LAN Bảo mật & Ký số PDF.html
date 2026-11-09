@@ -1427,6 +1427,13 @@
             if (!dir || !(dir.public || dir.lan?.length)) return false;
             const r = loadRoutes();
             if (r?.id && dir.id && r.id !== dir.id) saveRoutes({ id: dir.id, lan: [], public: null }); // máy chủ khác hẳn: bỏ địa chỉ cũ
+            // Có máy chủ đám mây (luôn bật, không phụ thuộc laptop) thì chỉ dùng máy chủ đó
+            if (dir.cloud) {
+                const cur = loadRoutes();
+                if (!cur || cur.public !== dir.cloud || (dir.cloudId && cur.id && cur.id !== dir.cloudId))
+                    saveRoutes({ id: dir.cloudId || null, lan: [], public: dir.cloud });
+                return true;
+            }
             addRoutesFromLink([...(dir.lan || []), ...(dir.public ? [dir.public] : [])]);
             return true;
         }
