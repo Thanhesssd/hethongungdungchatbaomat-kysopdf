@@ -876,7 +876,7 @@
         updateHash();
 
         // Khung kết quả đăng ký: thành công thì vào app, thất bại thì nói rõ lý do và cách sửa
-        function regResult(ok, detail, retryField) {
+        function regResult(ok, detail, retryField, extraHtml = '') {
             const box = $('#regResult');
             box.innerHTML = ok
                 ? `<span class="tick">✓</span><h2>Đăng ký thành công</h2>
@@ -885,7 +885,7 @@
                    <p>${detail}</p>
                    <button class="btn primary block" id="regGo" type="button">Vào ứng dụng</button>`
                 : `<span class="tick bad">✕</span><h2>${mode === 'register' ? 'Đăng ký' : 'Đăng nhập'} thất bại</h2>
-                   <p class="why">${esc(detail)}</p>
+                   <p class="why">${esc(detail)}</p>${extraHtml}
                    <p>Thông tin bạn đã nhập vẫn được giữ lại.</p>
                    <button class="btn primary block" id="regRetry" type="button">Thử lại</button>`;
             box.classList.remove('hidden');
@@ -896,7 +896,13 @@
                 return new Promise(resolve => $('#regGo').onclick = resolve);
             }
             $('#regRetry').focus();
-            $('#regRetry').onclick = () => {
+            $('#regRetry').onclick = async () => {
+                if (!state.server && loadRoutes() && location.protocol === 'https:') {
+                    state.stopDiscovery = true;  // dừng dò mạng để kết nối thử không bị chậm
+                    const best = await pickServer().catch(() => null);
+                    state.stopDiscovery = false;
+                    if (best) { toast('🟢 Đã kết nối máy chủ'); setTimeout(() => location.reload(), 600); return; }
+                }
                 $('.login-card').classList.remove('result');
                 box.classList.add('hidden');
                 $('#loginBtn').disabled = false;
@@ -907,6 +913,18 @@
         function regError(err) {
             if (err instanceof TypeError || err.name === 'AbortError') return 'Không kết nối được máy chủ. Tài khoản, bạn bè và tin nhắn của bạn vẫn an toàn trên máy chủ. Hãy bật máy chủ (chay-may-chu.bat), kiểm tra chung Wi‑Fi rồi bấm Thử lại.';
             return err.message || 'Có lỗi không mong muốn. Hãy thử lại.';
+        }
+
+        // Hướng dẫn mở khóa kết nối: trình duyệt chặn âm thầm khi chưa tin chứng chỉ của máy chủ (hay gặp nhất trên điện thoại)
+        function unlockHelp() {
+            const r = loadRoutes() || {};
+            const lan = (r.lan || []).filter(x => !x.startsWith('127.') && !/^192\.168\.(56|156|205)\./.test(x)).slice(0, 2);
+            const links = lan.map(h => `<a class="btn sm" href="https://${esc(h)}/" target="_blank" rel="noopener">Mở ${esc(h.replace(/:8443$/, ''))}</a>`).join(' ');
+            return `<ol class="pair-steps" style="text-align:left;margin:.6rem 0">
+                ${r.public ? `<li>Dùng 4G hoặc khác Wi‑Fi: <a href="${esc(r.public)}/">mở link Internet của máy chủ</a>.</li>` : ''}
+                <li>Cùng Wi‑Fi với máy chủ: bấm nút bên dưới, ở trang cảnh báo chọn <b>Nâng cao → Tiếp tục</b> (Safari: Hiển thị chi tiết → truy cập trang web này), rồi quay lại bấm <b>Thử lại</b>. ${links}</li>
+                <li>Máy chủ phải đang bật (chay-may-chu.bat). Trên máy chủ bấm <b>📡 Chia sẻ máy chủ</b> để xem đúng địa chỉ hiện tại.</li>
+            </ol>`;
         }
 
         // Đăng nhập trên máy khác bằng Địa chỉ LAN Chat (ten@máy-chủ): tự kết nối đúng máy chủ trước
@@ -951,9 +969,7 @@
                 toast('📡 Đang kết nối lại máy chủ…');
                 const best = await pickServer().catch(() => null);
                 $('#loginBtn').disabled = false;
-                if (!best) return regResult(false, `Chưa kết nối được máy chủ ${savedServer()}. Tài khoản, bạn bè và tin nhắn của bạn vẫn an toàn trên máy chủ, `
-                    + `nhưng phải kết nối được mới đăng nhập. Hãy bật máy chủ (bấm đúp chay-may-chu.bat trên máy chủ), kiểm tra chung Wi‑Fi, rồi bấm Thử lại. `
-                    + `App cũng tự kết nối lại khi máy chủ bật.`, '#fPass');
+                if (!best) return regResult(false, `Chưa kết nối được máy chủ. Tài khoản, bạn bè và tin nhắn của bạn vẫn an toàn trên máy chủ.`, '#fPass', unlockHelp());
                 // Máy chủ đã hoạt động lại: tải lại để vào đúng chế độ máy chủ rồi đăng nhập
                 toast('🟢 Đã kết nối lại máy chủ. Hãy đăng nhập lại');
                 setTimeout(() => location.reload(), 900);
@@ -1434,7 +1450,9 @@
                     saveRoutes({ id: dir.cloudId || null, lan: [], public: dir.cloud });
                 return true;
             }
-            addRoutesFromLink([...(dir.lan || []), ...(dir.public ? [dir.public] : [])]);
+            const old = loadRoutes() || {};
+            const lan = [...new Set([...(dir.lan || []), ...(old.lan || [])])].slice(0, 8);
+            saveRoutes({ id: dir.id || old.id, lan, public: dir.public || null });
             return true;
         }
 
@@ -1447,7 +1465,7 @@
                 ...(r.lan || []).map(h => ({ base: serverBase(h), kind: 'lan' })),
                 ...(r.public ? [{ base: r.public.replace(/\/?$/, '/'), kind: 'internet' }] : []),
             ];
-            const results = await Promise.all(tries.map(t => probe(t.base, 2500).then(health => ({ ...t, health }), () => null)));
+            const results = await Promise.all(tries.map(t => probe(t.base, 4000).then(health => ({ ...t, health }), () => null)));
             const ok = results.filter(x => x && (!r.id || !x.health.id || x.health.id === r.id));
             return ok.find(x => x.kind === 'lan') || ok[0] || null;
         }
@@ -2396,7 +2414,9 @@
         async function reconnectAll() {
             netStatus('busy', 'Đang tìm và kết nối lại máy chủ…');
             dirAt = 0;
+            state.stopDiscovery = true;
             const best = await pickServer().catch(() => null);
+            state.stopDiscovery = false;
             if (best) {
                 rememberRoutes(best.health);
                 toast(`🟢 Đã tìm thấy máy chủ ${new URL(best.base).host}. Đang kết nối…`);
@@ -2441,7 +2461,7 @@
             if (hit) return { ...hit, host: new URL(hit.base).host };
             let next = 0, found = null, done = 0;
             const worker = async () => {
-                while (!found && next < targets.length) {
+                while (!found && !state.stopDiscovery && next < targets.length) {
                     const t = targets[next++];
                     const h = await probe(t.base, 2000).catch(() => null);
                     done++;
