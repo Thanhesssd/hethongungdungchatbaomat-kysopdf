@@ -490,7 +490,7 @@
                 <h1 id="viewTitle">Tin nhắn</h1>
                 <div class="right">
                     <span class="net"><span class="dot busy" id="netDot"></span><span id="netLabel">Bản minh họa · chưa kết nối máy chủ</span></span>
-                    <button class="btn sm hidden" id="reconnectBtn" type="button" title="Thử kết nối lại máy chủ ngay">↻ Kết nối lại</button>
+                    <button class="btn sm" id="reconnectBtn" type="button" title="Thử kết nối lại máy chủ ngay">↻ Kết nối lại</button>
                     <button class="btn sm primary hidden" id="shareSrvBtn" title="Cho máy khác kết nối vào máy chủ này">📡 Chia sẻ máy chủ</button>
                     <button class="btn sm hidden" id="pairBtn" title="Đăng nhập trên điện thoại bằng mã QR">📱 Kết nối điện thoại</button>
                     <button class="icon-btn" id="themeBtn" title="Đổi giao diện sáng/tối">◐</button>
@@ -2385,12 +2385,27 @@
             setTimeout(() => location.reload(), 1200);
         }
 
+        // Kết nối lại: lấy địa chỉ mới nhất của máy chủ (may-chu.json trên GitHub), thử mọi đường, rồi dò trong mạng
+        async function reconnectAll() {
+            netStatus('busy', 'Đang tìm và kết nối lại máy chủ…');
+            dirAt = 0;
+            const best = await pickServer().catch(() => null);
+            if (best) {
+                rememberRoutes(best.health);
+                toast(`🟢 Đã tìm thấy máy chủ ${new URL(best.base).host}. Đang kết nối…`);
+                setTimeout(() => location.reload(), 800);
+                return;
+            }
+            netStatus('off', 'Chưa kết nối được máy chủ · đang dò trong mạng…', true);
+            autoDiscover();
+        }
+
         $('#reconnectBtn').onclick = () => {
             if (state.server) {
                 netStatus('busy', 'Đang kết nối lại…');
                 state.connOk = null;
                 resyncNow();
-            } else state.retrySaved?.();
+            } else reconnectAll();
         };
 
         // Dò máy chủ trong các dải IP nội bộ thường gặp. Trình duyệt không gửi được gói UDP để dò,
