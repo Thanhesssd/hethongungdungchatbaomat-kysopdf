@@ -1840,9 +1840,11 @@
                 if (!c) {
                     c = { id: u.id, name: u.name, role: 'Bạn bè', ip: 'Máy chủ LAN', real: true };
                     state.contacts.unshift(c);
+                    if (state.friendsLoaded) toast(`🎉 ${u.name} đã kết bạn với bạn. Hai bạn nhắn tin được ngay`);
                 }
                 Object.assign(c, { pub: p.pub, fp: p.fp, status: u.online ? 'on' : 'off' });
             }
+            state.friendsLoaded = true;
             for (const g of d.groups) {
                 const c = state.contacts.find(x => x.id === g.id);
                 if (c) { c.members = g.members; continue; }
@@ -2361,15 +2363,15 @@
                     closeModal();
                     await refresh();
                     if (r.relation === 'friend') { toast(`🎉 Đã kết bạn với ${u.name}`); go('chat'); openChat(u.id); }
-                    else toast(`📨 Đã tự gửi lời mời kết bạn tới ${u.name}. Khi họ đồng ý, hai bạn nhắn tin được ngay`);
+                    else toast(`📨 Đã gửi lời mời kết bạn tới ${u.name}`);
                     return;
                 }
                 modal('Kết bạn', `<div class="person" style="padding:.4rem 0">${avatarHtml(u.name)}<b>${esc(u.name)}</b></div>
                     <p class="muted">${u.relation === 'incoming' ? 'Người này đã mời bạn kết bạn. Đồng ý để hai bạn nhắn tin được ngay.'
                         : u.relation === 'outgoing' ? 'Bạn đã gửi lời mời. Đang chờ người này đồng ý.'
-                            : 'Lời mời sẽ được gửi tới máy của người này. Khi họ đồng ý, hai bạn nhắn tin được ngay.'}</p>`,
+                            : 'Quét mã QR là kết bạn luôn: hai bạn thấy nhau trong danh bạ và nhắn tin được ngay, không cần chờ đồng ý.'}</p>`,
                     u.relation === 'outgoing' ? `<button class="btn primary" data-close>Đóng</button>`
-                        : `<button class="btn" data-close>Để sau</button><button class="btn primary" id="confirmQr">${u.relation === 'incoming' ? 'Đồng ý kết bạn' : 'Gửi lời mời kết bạn'}</button>`);
+                        : `<button class="btn" data-close>Để sau</button><button class="btn primary" id="confirmQr">${u.relation === 'incoming' ? 'Đồng ý kết bạn' : 'Kết bạn ngay'}</button>`);
                 if (u.relation === 'outgoing') return;
                 $('#confirmQr').onclick = async () => {
                     try {
