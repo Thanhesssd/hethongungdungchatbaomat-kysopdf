@@ -955,15 +955,25 @@
             return true;
         }
 
-        async function upgradeWhenServerBack(name, pass, remember) {
+        // Tự tìm máy chủ (địa chỉ đã lưu, địa chỉ mới nhất trên GitHub, link Internet) rồi đưa tài khoản lên máy chủ:
+        // đăng ký mới thì tạo tài khoản trên máy chủ, đã có thì đăng nhập. Xong tự mở lại app ở chế độ máy chủ.
+        async function upgradeWhenServerBack(name, pass, remember, how = 'login') {
+            if (state.upgrading) return;
+            state.upgrading = true;
+            window.addEventListener('online', () => { state.upgradeNow = true; });
             for (let i = 0; state.forceLocal && state.user; i++) {
-                await sleep(i < 6 ? 10000 : 30000);
+                for (let w = 0; w < (i === 0 ? 2 : i < 10 ? 10 : 30) && !state.upgradeNow; w++) await sleep(1000);
+                state.upgradeNow = false;
+                if (!state.forceLocal) break;
+                dirAt = 0;
+                await refreshDirectory().catch(() => false);
                 if (!loadRoutes()) continue;
                 state.stopDiscovery = true;
                 const best = await pickServer().catch(() => null);
                 state.stopDiscovery = false;
                 if (!best || !state.forceLocal) continue;
                 const keep = { server: state.server, apiBase: state.apiBase, passHash: state.passHash, histId: state.histId, histKey: state.histKey };
+                const fp = $('#fPass');
                 try {
                     Object.assign(state, { server: true, apiBase: best.base === location.origin + '/' ? '' : best.base, routeKind: best.kind });
                     rememberRoutes(best.health);
@@ -971,20 +981,31 @@
                     state.passHash = await sha256(pass);
                     state.histKey = await deriveHistKey(pass, acct);
                     state.histId = await sha256(acct + ':' + state.passHash);
-                    const fp = $('#fPass'); fp.value = pass; mode = 'login';
-                    await serverAuth(name);
-                    fp.value = '';
+                    fp.value = pass;
+                    mode = how;
+                    try { await serverAuth(name); }
+                    catch (e) {
+                        // Đăng ký mà tên đã có trên máy chủ: thử đăng nhập bằng cùng mật khẩu (tài khoản của chính mình)
+                        if (how === 'register' && e.status && e.status < 500) { mode = 'login'; await serverAuth(name); }
+                        else throw e;
+                    }
                 } catch (e) {
                     Object.assign(state, keep);
-                    if (e.status) return; // máy chủ không có tài khoản này: giữ tài khoản trên máy
+                    if (e.status && e.status < 500) {
+                        netStatus('off', 'Đã thấy máy chủ nhưng chưa đưa được tài khoản lên', true);
+                        toast(how === 'register' ? `Tên "${name}" đã có người dùng trên máy chủ. Hãy đăng xuất và đăng ký tên khác` : 'Máy chủ không nhận mật khẩu này: ' + e.message);
+                        state.upgrading = false;
+                        return;
+                    }
                     continue;
-                }
+                } finally { fp.value = ''; }
                 await saveSession();
                 if (!remember) try { sessionStorage.setItem('lanchat-once', '1'); } catch (e) { }
-                toast('🟢 Máy chủ đã bật. Đang mở lại danh bạ và tin nhắn của bạn…');
+                toast(how === 'register' ? '🟢 Đã kết nối máy chủ. Tài khoản của bạn đã được tạo trên máy chủ' : '🟢 Đã kết nối máy chủ. Đang mở danh bạ và tin nhắn của bạn…');
                 setTimeout(() => location.reload(), 1200);
                 return;
             }
+            state.upgrading = false;
         }
 
         async function reauthWhenOnline(name, pass, remember) {
@@ -1113,9 +1134,10 @@
             await enterApp();
             if (!state.server) $('#demoBar').classList.remove('hidden');
             if (mode === 'login') toast(`✅ Đăng nhập thành công. Chào mừng ${state.user}!`);
-            if (state.forceLocal) {
-                netStatus('off', 'Máy chủ đang tắt · danh bạ và tin nhắn sẽ tự hiện lại khi máy chủ bật', true);
-                if (mode === 'login') upgradeWhenServerBack(name, $('#fPass').value, $('#fRemember').checked);
+            if (!state.server && name !== SAMPLE_USER) {
+                state.forceLocal = true;
+                netStatus('off', 'Đang tự tìm máy chủ · tài khoản sẽ tự chuyển lên máy chủ khi kết nối được', true);
+                upgradeWhenServerBack(name, $('#fPass').value, $('#fRemember').checked, mode);
             }
             if (state.server) {
                 enterServerUi();
@@ -2120,11 +2142,24 @@
             if (state.server) {
                 const code = parseFriendCode(text);
                 if (!code) {
-                    if (parseDemoCode(text)) {
+                    const demoName = parseDemoCode(text);
+                    if (demoName) {
                         stopScan();
-                        modal('Mã QR của bản minh họa', `<p style="font-size:.86rem">Mã này được tạo ở bản minh họa, không gắn với tài khoản nào trên máy chủ nên không kết bạn được.</p>
-                            <p class="muted" style="font-size:.84rem">Hãy nhờ người kia mở app qua máy chủ <b class="mono">${esc(serverHost())}</b>, đăng nhập rồi đưa lại mã "QR của tôi".</p>`,
-                            `<button class="btn primary" data-close>Đã hiểu</button>`);
+                        (async () => {
+                            let list = [];
+                            try { list = (await api('users?q=' + encodeURIComponent(demoName))).users || []; } catch (e) { }
+                            const same = list.filter(u => u.name.toLowerCase() === demoName.toLowerCase());
+                            if (same.length === 1) {
+                                const u = same[0];
+                                closeModal();
+                                if (u.relation === 'friend') return toast(`${u.name} đã là bạn bè của bạn`);
+                                await friendAction(u.relation === 'incoming' ? 'accept' : 'request', u.id, u.relation === 'incoming' ? `🎉 Đã kết bạn với ${u.name}` : `📨 Đã gửi lời mời kết bạn tới ${u.name}`);
+                                return;
+                            }
+                            modal('Người này chưa vào máy chủ', `<p style="font-size:.86rem"><b>${esc(demoName)}</b> chưa có tài khoản trên máy chủ (đang dùng tạm trên máy của họ).</p>
+                                <p class="muted" style="font-size:.84rem">App của họ sẽ tự chuyển tài khoản lên máy chủ khi kết nối được. Hãy nhờ họ mở lại app bằng link chung, rồi đưa lại mã "QR của tôi" mới, hoặc bạn tìm tên họ ở nút ＋ Kết bạn.</p>`,
+                                `<button class="btn primary" data-close>Đã hiểu</button>`);
+                        })();
                         return true;
                     }
                     return false;
@@ -3418,7 +3453,7 @@
             modal('Mã QR của tôi', `${img}
                 <p style="text-align:center"><b>${esc(state.user)}</b></p>
                 <p class="muted" style="text-align:center;font-size:.8rem">Người khác bấm Quét QR trong app, hoặc quét bằng camera điện thoại để mở app và thêm bạn vào danh bạ.</p>
-                <p style="text-align:center;font-size:.8rem;color:var(--amber)">⚠ Đây là mã của bản minh họa: quét xong chỉ thêm tên vào danh bạ, chưa nhắn tin được. Kết nối máy chủ LAN để có mã kết bạn thật.</p>
+                <p style="text-align:center;font-size:.8rem;color:var(--amber)">⚠ App đang tự tìm máy chủ. Mã này tạm thời chỉ có tên của bạn; người quét đang ở máy chủ vẫn tìm được bạn theo tên sau khi tài khoản của bạn lên máy chủ.</p>
                 <p class="muted" style="text-align:center;font-size:.76rem">Vân tay: <span class="mono">${fmtFp(state.fingerprint)}</span></p>`);
             if (!window.qrcode) drawQr($('#qrCanvas'), state.fingerprint);
         };
