@@ -761,6 +761,10 @@
                             <dl class="kv" id="certInfo"></dl>
                         </div>
                     </div>
+                    <div class="card hidden" id="devCard" style="grid-column:1/-1">
+                        <div class="card-h"><h3>Thiết bị đã đăng nhập</h3><button class="btn sm danger" id="devOthers">Đăng xuất mọi thiết bị khác</button></div>
+                        <div class="card-b"><p class="muted" style="font-size:.84rem">Các máy đang dùng tài khoản này. Máy bị mất hoặc không còn dùng: bấm Đăng xuất để máy đó không vào được nữa.</p><div id="devList">Đang tải…</div></div>
+                    </div>
                     <div class="card hidden" id="caCard" style="grid-column:1/-1">
                         <div class="card-h"><h3>Chứng thư gốc (Root CA)</h3><button class="btn sm primary" id="caOpen">🛡️ Xem và cài đặt</button></div>
                         <div class="card-b"><p class="muted">Cài một lần trên mỗi máy để trình duyệt tin kết nối HTTPS trong mạng nội bộ và không còn cảnh báo NET::ERR_CERT_AUTHORITY_INVALID.</p></div>
@@ -1233,6 +1237,7 @@
             if (view === 'verify' && !noDoc) renderVerify();
             if (view === 'sign' && !noDoc) { renderPage(); renderSignPanel(); }
             if (view === 'profile') renderProfile();
+            if (view === 'account') renderDevices();
             $('.view:not(.hidden)').scrollTop = 0;
         }
         $$('#nav button').forEach(b => b.onclick = () => go(b.dataset.view));
@@ -4049,7 +4054,33 @@
         };
 
         // ============ Tài khoản ============
+        async function renderDevices() {
+            if (!state.server || !state.token) return $('#devCard').classList.add('hidden');
+            $('#devCard').classList.remove('hidden');
+            let list = [];
+            try { list = (await api('devices')).devices || []; }
+            catch (e) { $('#devList').textContent = 'Chưa tải được danh sách thiết bị (đang mất kết nối máy chủ).'; return; }
+            const when = t => !t ? '—' : Date.now() / 1000 - t < 90 ? 'đang hoạt động' : new Date(t * 1000).toLocaleString('vi-VN');
+            const icon = n => /iPhone|Android/.test(n) ? '📱' : /iPad/.test(n) ? '📲' : '💻';
+            $('#devList').innerHTML = list.map(d => `<div class="person" style="justify-content:space-between;padding:.5rem 0;border-top:1px solid var(--line)">
+                    <div><b>${icon(d.name)} ${esc(d.name)}</b>${d.current ? ' <span class="chip green">Máy này</span>' : ''}<br>
+                    <small class="muted">IP ${esc(d.ip || '—')} · đăng nhập ${d.created ? new Date(d.created * 1000).toLocaleDateString('vi-VN') : '—'} · ${when(d.last)}</small></div>
+                    ${d.current ? '' : `<button class="btn sm danger" data-dev-out="${esc(d.id)}">Đăng xuất</button>`}
+                </div>`).join('') || '<p class="muted">Chỉ có máy này.</p>';
+            $('#devOthers').classList.toggle('hidden', list.length < 2);
+            $$('#devList [data-dev-out]').forEach(b => b.onclick = async () => {
+                b.disabled = true;
+                try { await api('devices/logout', { id: b.dataset.devOut }); toast('Đã đăng xuất thiết bị đó'); } catch (e) { toast(e.message); }
+                renderDevices();
+            });
+        }
+        $('#devOthers').onclick = async () => {
+            try { const r = await api('devices/logout', { id: 'others' }); toast(`Đã đăng xuất ${r.removed} thiết bị khác`); } catch (e) { toast(e.message); }
+            renderDevices();
+        };
+
         function renderAccount() {
+            renderDevices();
             const today = new Date(), until = new Date(today);
             until.setFullYear(today.getFullYear() + 2);
             $('#accName').textContent = state.user;

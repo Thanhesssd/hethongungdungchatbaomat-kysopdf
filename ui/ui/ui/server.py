@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS friends (a INTEGER NOT NULL, b INTEGER NOT NULL, PRIM
 CREATE TABLE IF NOT EXISTS requests (a INTEGER NOT NULL, b INTEGER NOT NULL, PRIMARY KEY (a, b));
 CREATE TABLE IF NOT EXISTS sessions (token TEXT PRIMARY KEY, user_id INTEGER, expires REAL);
 CREATE TABLE IF NOT EXISTS delivered (user_id INTEGER PRIMARY KEY, seq INTEGER);
+CREATE TABLE IF NOT EXISTS devices (session TEXT PRIMARY KEY, user_id INTEGER, data TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT);
 """
 CERT_PATH = os.path.join(DATA_DIR, "cert.pem")
@@ -128,6 +129,7 @@ class Store:
         self.friends = set()
         self.requests = set()
         self.sessions = {}
+        self.devices = {}  # mã phiên (đã băm) -> thiết bị: tên, trình duyệt, IP, lúc đăng nhập, lần hoạt động cuối
         self.fails = {}
         self.signups = {}
         self.pairs = {}
@@ -152,6 +154,7 @@ class Store:
             self.requests = {tuple(p) for p in db.get("requests", [])}
             self.sessions = {k: tuple(v) for k, v in db.get("sessions", {}).items() if v[1] > time.time()}
             self.delivered = {int(k): v for k, v in db.get("delivered", {}).items()}
+            self.devices = {k: v for k, v in db.get("devices", {}).items() if k in self.sessions}
         if not CLOUD and not os.path.exists(SQL_PATH):
             self.save()  # chuyển dữ liệu cũ (server.json) sang SQL, giữ nguyên file cũ làm bản sao lưu
 
@@ -175,6 +178,7 @@ class Store:
                 "requests": q("SELECT a, b FROM requests"),
                 "sessions": {t: [u, e] for t, u, e in q("SELECT token, user_id, expires FROM sessions")},
                 "delivered": dict(q("SELECT user_id, seq FROM delivered")),
+                "devices": {k: json.loads(v) for k, v in q("SELECT session, data FROM devices")},
             }
         finally:
             con.close()
@@ -184,7 +188,7 @@ class Store:
             con = self.sql_connect()
             try:
                 with con:
-                    for t in ("users", "groups", "messages", "friends", "requests", "sessions", "delivered"):
+                    for t in ("users", "groups", "messages", "friends", "requests", "sessions", "delivered", "devices"):
                         con.execute(f"DELETE FROM {t}")
                     con.executemany("INSERT INTO users VALUES (?, ?, ?)",
                                     [(k, u.get("name", ""), json.dumps(u)) for k, u in self.users.items()])
@@ -198,6 +202,8 @@ class Store:
                     con.executemany("INSERT OR IGNORE INTO requests VALUES (?, ?)", sorted(self.requests))
                     con.executemany("INSERT INTO sessions VALUES (?, ?, ?)", [(t, v[0], v[1]) for t, v in self.sessions.items()])
                     con.executemany("INSERT INTO delivered VALUES (?, ?)", list(self.delivered.items()))
+                    con.executemany("INSERT INTO devices VALUES (?, ?, ?)",
+                                    [(k, self.sessions[k][0], json.dumps(v)) for k, v in self.devices.items() if k in self.sessions])
                     con.execute("INSERT OR REPLACE INTO meta VALUES ('seq', ?)", (str(self.seq),))
             finally:
                 con.close()
@@ -211,7 +217,7 @@ class Store:
         with open(tmp, "w", encoding="utf-8") as f:
             json.dump({"users": self.users, "groups": self.groups, "messages": self.messages, "seq": self.seq,
                        "friends": sorted(self.friends), "requests": sorted(self.requests), "sessions": self.sessions,
-                       "delivered": self.delivered}, f)
+                       "delivered": self.delivered, "devices": self.devices}, f)
         os.replace(tmp, DB_PATH)
         cloud_push()
 
@@ -326,7 +332,22 @@ class Handler(BaseHTTPRequestHandler):
     def current_user(self):
         key = hashlib.sha256(self.headers.get("X-Token", "").encode()).hexdigest()
         session = self.store.sessions.get(key)
-        return session[0] if session and session[1] > time.time() else None
+        if not (session and session[1] > time.time()):
+            return None
+        dev = self.store.devices.get(key)
+        if dev is not None:
+            dev["last"] = int(time.time())
+            dev["ip"] = self.client_ip()
+        return session[0]
+
+    def device_info(self):
+        ua = self.headers.get("User-Agent", "")
+        os_name = next((n for k, n in (("iPhone", "iPhone"), ("iPad", "iPad"), ("Android", "Android"), ("Windows", "Windows"),
+                                       ("Macintosh", "Mac"), ("CrOS", "Chromebook"), ("Linux", "Linux")) if k in ua), "Thiết bị")
+        browser = next((n for k, n in (("Edg/", "Edge"), ("OPR/", "Opera"), ("CriOS", "Chrome"), ("Chrome/", "Chrome"),
+                                       ("FxiOS", "Firefox"), ("Firefox/", "Firefox"), ("Safari/", "Safari")) if k in ua), "trình duyệt")
+        now = int(time.time())
+        return {"name": f"{os_name} · {browser}", "ip": self.client_ip(), "created": now, "last": now}
 
     def do_GET(self):
         url = urlparse(self.path)
@@ -346,6 +367,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.handle_sync(parse_qs(url.query))
         if url.path == "/api/users":
             return self.handle_users(parse_qs(url.query))
+        if url.path == "/api/devices":
+            return self.handle_devices()
         self.serve_static(unquote(url.path))
 
     def handle_ca(self):
@@ -392,7 +415,7 @@ class Handler(BaseHTTPRequestHandler):
         routes = {"/api/register": self.handle_register, "/api/login": self.handle_login,
                   "/api/send": self.handle_send, "/api/group": self.handle_group,
                   "/api/group/add": self.handle_group_add, "/api/group/leave": self.handle_group_leave,
-                  "/api/friend": self.handle_friend, "/api/friend/scan": self.handle_friend_scan,
+                  "/api/friend": self.handle_friend, "/api/devices/logout": self.handle_device_logout, "/api/friend/scan": self.handle_friend_scan,
                   "/api/friend/code": self.handle_friend_code, "/api/logout": self.handle_logout, "/api/ack": self.handle_ack,
                   "/api/pair/create": self.handle_pair_create, "/api/pair/claim": self.handle_pair_claim,
                   "/api/vault": self.handle_vault_put}
@@ -407,7 +430,9 @@ class Handler(BaseHTTPRequestHandler):
     def session(self, user, extra=None):
         token = secrets.token_hex(24)
         with self.store.cond:
-            self.store.sessions[hashlib.sha256(token.encode()).hexdigest()] = (user["id"], time.time() + SESSION_SECONDS)
+            key = hashlib.sha256(token.encode()).hexdigest()
+            self.store.sessions[key] = (user["id"], time.time() + SESSION_SECONDS)
+            self.store.devices[key] = self.device_info()
             user.setdefault("code", secrets.token_urlsafe(12))
             self.store.last_seen[user["id"]] = time.time()
             self.store.save()
@@ -536,10 +561,40 @@ class Handler(BaseHTTPRequestHandler):
         key = hashlib.sha256(self.headers.get("X-Token", "").encode()).hexdigest()
         with self.store.cond:
             session = self.store.sessions.pop(key, None)
+            self.store.devices.pop(key, None)
             if session:
                 self.store.last_seen.pop(session[0], None)
                 self.store.save()
         self.send_json({"ok": True})
+
+    def handle_devices(self):
+        uid = self.current_user()
+        if not uid:
+            return self.send_json({"error": "Phiên đăng nhập đã hết hạn"}, 401)
+        mine = hashlib.sha256(self.headers.get("X-Token", "").encode()).hexdigest()
+        with self.store.cond:
+            now = time.time()
+            out = [{"id": k[:16], "current": k == mine, **self.store.devices.get(k, {"name": "Thiết bị cũ", "ip": "", "created": 0, "last": 0})}
+                   for k, (u, exp) in self.store.sessions.items() if u == uid and exp > now]
+        out.sort(key=lambda d: (not d["current"], -(d.get("last") or 0)))
+        self.send_json({"devices": out})
+
+    def handle_device_logout(self, body):
+        """Đăng xuất từ xa một thiết bị (ví dụ máy bị mất), hoặc mọi thiết bị khác (id = "others")."""
+        uid = self.current_user()
+        if not uid:
+            return self.send_json({"error": "Phiên đăng nhập đã hết hạn"}, 401)
+        mine = hashlib.sha256(self.headers.get("X-Token", "").encode()).hexdigest()
+        target = str(body["id"])
+        with self.store.cond:
+            gone = [k for k, (u, _) in self.store.sessions.items()
+                    if u == uid and k != mine and (target == "others" or k[:16] == target)]
+            for k in gone:
+                self.store.sessions.pop(k, None)
+                self.store.devices.pop(k, None)
+            if gone:
+                self.store.save()
+        self.send_json({"ok": True, "removed": len(gone)})
 
     def handle_friend_scan(self, body):
         """Quét mã QR là kết bạn luôn cho cả hai bên: người đưa mã QR cho mình quét tức là đã đồng ý kết bạn.
