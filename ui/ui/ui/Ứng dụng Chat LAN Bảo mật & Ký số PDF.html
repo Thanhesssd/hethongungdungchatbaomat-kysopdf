@@ -4580,16 +4580,29 @@
             return file.type.startsWith('image/') || /\.(jpe?g|jfif|pjpeg|pjp|png|gif|webp|bmp|avif|heic|heif|tiff?|ico|svg)$/i.test(file.name) || !file.type;
         }
         const isHeic = file => /\.(heic|heif)$/i.test(file.name) || /heic|heif/i.test(file.type);
-        let heicLib = null;
-        function loadHeicLib() {
-            heicLib ||= new Promise((ok, bad) => {
+        // Hai bộ chuyển ảnh HEIC: heic-to (libheif mới, đọc được ảnh iPhone iOS 17/18) trước, heic2any (cũ) dự phòng
+        const heicLibs = {};
+        function loadScriptOnce(key, src, global) {
+            heicLibs[key] ||= new Promise((ok, bad) => {
                 const s = document.createElement('script');
-                s.src = 'https://cdnjs.cloudflare.com/ajax/libs/heic2any/0.0.4/heic2any.min.js';
-                s.onload = () => window.heic2any ? ok(window.heic2any) : bad(new Error('no heic2any'));
-                s.onerror = () => { heicLib = null; bad(new Error('Không tải được bộ chuyển ảnh HEIC (kiểm tra mạng)')); };
+                s.src = src;
+                s.onload = () => window[global] ? ok(window[global]) : bad(new Error('no ' + global));
+                s.onerror = () => { delete heicLibs[key]; bad(new Error('Không tải được bộ chuyển ảnh HEIC (kiểm tra mạng)')); };
                 document.head.appendChild(s);
             });
-            return heicLib;
+            return heicLibs[key];
+        }
+        async function heicToJpeg(file) {
+            let lastErr;
+            try {
+                const HeicTo = await loadScriptOnce('heicto', 'https://cdn.jsdelivr.net/npm/heic-to@1.6.6/dist/iife/heic-to.js', 'HeicTo');
+                return await HeicTo({ blob: file, type: 'image/jpeg', quality: .9 });
+            } catch (e) { lastErr = e; }
+            try {
+                const h2a = await loadScriptOnce('heic2any', 'https://cdnjs.cloudflare.com/ajax/libs/heic2any/0.0.4/heic2any.min.js', 'heic2any');
+                const conv = await h2a({ blob: file, toType: 'image/jpeg', quality: .9 });
+                return Array.isArray(conv) ? conv[0] : conv;
+            } catch (e) { throw e; }
         }
         async function decodeImage(blob, url) {
             // Ảnh lớn (điện thoại 12–48 MP): giải mã kèm thu nhỏ, đỡ tốn bộ nhớ, tránh lỗi trên iPhone
@@ -4612,8 +4625,7 @@
                 if (isHeic(file) || !file.type) {
                     toast('⏳ Đang chuyển ảnh iPhone (HEIC) sang JPG…');
                     try {
-                        const conv = await (await loadHeicLib())({ blob: file, toType: 'image/jpeg', quality: .9 });
-                        return await decodeImage(Array.isArray(conv) ? conv[0] : conv);
+                        return await decodeImage(await heicToJpeg(file));
                     } catch (e2) {
                         if (isHeic(file)) throw new Error(/mạng/.test(e2.message) ? e2.message
                             : 'Không chuyển được ảnh HEIC này. Trên iPhone: Cài đặt → Camera → Định dạng → Tương thích nhất, rồi chọn lại ảnh');
