@@ -44,6 +44,8 @@ MAX_BODY = 1024 * 1024
 MAX_GROUP = 50
 MAX_FAILS = 5
 MAX_SIGNUPS_PER_HOUR = 10
+MAX_INVITES_PER_HOUR = 30  # lời mời kết bạn / lượt quét QR mỗi tài khoản, chống spam
+CODE_DAYS = 30  # mã QR kết bạn hết hạn sau 30 ngày (app tự cấp mã mới khi mở "QR của tôi")
 PAIR_SECONDS = 300  # đủ thời gian cho bước bỏ qua cảnh báo chứng chỉ trên điện thoại
 # Trang được phép dùng máy chủ này từ địa chỉ khác (bản trên GitHub Pages)
 PUBLIC_URL_FILE = os.path.join(DATA_DIR, "public_url.txt")
@@ -132,6 +134,7 @@ class Store:
         self.devices = {}  # mã phiên (đã băm) -> thiết bị: tên, trình duyệt, IP, lúc đăng nhập, lần hoạt động cuối
         self.fails = {}
         self.signups = {}
+        self.invites = {}  # ID tài khoản -> các lần gửi lời mời trong giờ qua
         self.pairs = {}
         self.last_seen = {}
         self.recent_mids = {}  # (tài khoản, mã tin) -> seq, để không lưu trùng khi gửi lại
@@ -609,6 +612,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json({"error": "Mã QR không đúng hoặc đã được đổi"}, 404)
             if other["id"] == uid:
                 return self.send_json({"error": "Đây là mã QR của chính bạn"}, 400)
+            if other.get("codeAt") and time.time() - other["codeAt"] > CODE_DAYS * 86400:
+                return self.send_json({"error": f"Mã QR này đã hết hạn. Nhờ {other['name']} mở lại \"QR của tôi\" để lấy mã mới"}, 410)
+            if body.get("confirm") and pair(uid, other["id"]) not in store.friends and not self.invite_ok(uid):
+                return self.send_json({"error": "Bạn đã kết bạn quá nhiều lần trong một giờ. Hãy thử lại sau"}, 429)
             if body.get("confirm") and pair(uid, other["id"]) not in store.friends:
                 store.requests.discard((other["id"], uid))
                 store.requests.discard((uid, other["id"]))
@@ -621,9 +628,23 @@ class Handler(BaseHTTPRequestHandler):
         if not uid:
             return self.send_json({"error": "Phiên đăng nhập đã hết hạn"}, 401)
         with self.store.cond:
-            self.store.users[uid]["code"] = secrets.token_urlsafe(12)
-            self.store.save()
-            self.send_json({"code": self.store.users[uid]["code"]})
+            user = self.store.users[uid]
+            # ifOld: chỉ đổi khi mã đã cũ hơn 7 ngày (mở "QR của tôi" là luôn có mã còn hạn); không có thì đổi luôn
+            old = not user.get("codeAt") or time.time() - user["codeAt"] > 7 * 86400
+            if not body.get("ifOld") or old or not user.get("code"):
+                user["code"] = secrets.token_urlsafe(12)
+                user["codeAt"] = int(time.time())
+                self.store.save()
+            self.send_json({"code": user["code"], "until": user["codeAt"] + CODE_DAYS * 86400})
+
+    def invite_ok(self, uid):
+        now = time.time()
+        recent = [t for t in self.store.invites.get(uid, []) if now - t < 3600]
+        if len(recent) >= MAX_INVITES_PER_HOUR:
+            self.store.invites[uid] = recent
+            return False
+        self.store.invites[uid] = recent + [now]
+        return True
 
     def handle_users(self, query):
         uid = self.current_user()
@@ -647,6 +668,8 @@ class Handler(BaseHTTPRequestHandler):
         with store.cond:
             if other == uid or other not in store.users:
                 return self.send_json({"error": "Không tìm thấy tài khoản này"}, 404)
+            if action == "request" and (uid, other) not in store.requests and not self.invite_ok(uid):
+                return self.send_json({"error": "Bạn đã gửi quá nhiều lời mời trong một giờ. Hãy thử lại sau"}, 429)
             if action == "request":
                 if (other, uid) in store.requests:
                     action = "accept"

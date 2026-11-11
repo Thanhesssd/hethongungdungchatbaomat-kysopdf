@@ -1865,10 +1865,11 @@
             state.social = d;
             if (prev) {
                 const friendIds = new Set(d.users.filter(u => u.friend).map(u => u.id));
+                const stillOut = new Set(d.outgoing.map(u => u.id));
                 for (const u of prev.outgoing) if (friendIds.has(u.id)) {
                     toast(`🎉 ${u.name} đã đồng ý kết bạn. Hai bạn có thể nhắn tin ngay`);
                     openChat(u.id, $('#view-chat').classList.contains('hidden'));
-                }
+                } else if (!stillOut.has(u.id) && !state.cancelled?.has(u.id)) toast(`${u.name} đã từ chối lời mời kết bạn của bạn`);
             }
             renderRequestPopups();
 
@@ -1946,6 +1947,7 @@
         }
 
         async function friendAction(action, id, done) {
+            if (action === 'cancel') (state.cancelled ||= new Set()).add(id);
             try {
                 await api('friend', { action, id });
                 if (done) toast(done);
@@ -2086,27 +2088,40 @@
             return `${PAGES_APP}#server=${all.join(',')}&add=${state.code}${r.id ? '&srv=' + r.id : ''}`;
         }
 
-        function myQrModal() {
+        async function myQrModal() {
+            if (state.server && state.token) {
+                try { const r = await api('friend/code', { ifOld: true }); state.code = r.code; state.codeUntil = r.until; } catch (e) { }
+            }
             const qr = qrcode(0, 'M');
             qr.addData(friendLink());
             qr.make();
             modal('Mã QR kết bạn của tôi', `
                 <img class="qr-img" id="myQr" alt="Mã QR kết bạn của ${esc(state.user)}" src="${qr.createDataURL(6, 16)}">
                 <p style="text-align:center"><b>${esc(state.user)}</b><br><span class="mono" style="font-size:.82rem">${esc(chatAddress())} · ID ${state.me}</span></p>
-                <p class="muted" style="text-align:center;font-size:.8rem">Người khác quét mã này, hoặc tìm theo tên hay mã số ${state.me}, để gửi lời mời kết bạn tới bạn.</p>
-                <div style="display:flex;gap:.4rem;justify-content:center;flex-wrap:wrap"><button class="btn sm" type="button" id="copyFriendLink">Sao chép link mời kết bạn</button></div>
-                <p style="text-align:center;font-size:.82rem">Địa chỉ máy chủ: <b class="mono">${esc(friendLink().split('/')[2])}</b></p>
-                ${isIp(friendLink().split('/')[2]) ? '<p class="muted" style="text-align:center;font-size:.76rem">Địa chỉ này chỉ dùng được khi chung Wi‑Fi. Người dùng 4G/5G cần mở app qua link Internet của máy chủ rồi tạo mã QR ở đó.</p>' : ''}
+                <p class="muted" style="text-align:center;font-size:.8rem">Người khác quét mã này là hai bạn thành bạn bè ngay, dùng Wi‑Fi hay 4G/5G đều được. Tìm theo tên hoặc mã số ${state.me} thì gửi lời mời và chờ bạn đồng ý.</p>
+                <div style="display:flex;gap:.4rem;justify-content:center;flex-wrap:wrap">
+                    <button class="btn sm primary" type="button" id="shareFriendLink">📤 Gửi link mời (Zalo, Messenger…)</button>
+                    <button class="btn sm" type="button" id="copyFriendLink">Sao chép link</button></div>
+                ${state.codeUntil ? `<p class="muted" style="text-align:center;font-size:.76rem">Mã có hạn đến ${new Date(state.codeUntil * 1000).toLocaleDateString('vi-VN')}, mở lại mục này là tự gia hạn.</p>` : ''}
+                ${!(loadRoutes() || {}).public ? '<p class="muted" style="text-align:center;font-size:.76rem">⚠ Máy chủ chưa bật link Internet: mã này chỉ dùng được khi chung Wi‑Fi với máy chủ.</p>' : ''}
                 <p class="muted" style="text-align:center;font-size:.76rem">Vân tay khóa: <span class="mono">${fmtFp(state.fingerprint)}</span></p>`,
                 `<button class="btn" id="newCode">Đổi mã QR</button><button class="btn primary" data-close>Xong</button>`);
+            $('#shareFriendLink').onclick = async () => {
+                const url = state.server ? friendLink() : friendLinkForSharing();
+                if (navigator.share) {
+                    try { await navigator.share({ title: 'Kết bạn trên LAN Chat', text: `Kết bạn với ${state.user} trên LAN Chat: bấm link để mở app và kết bạn`, url }); return; }
+                    catch (e) { if (e.name === 'AbortError') return; }
+                }
+                $('#copyFriendLink').click();
+            };
             $('#copyFriendLink').onclick = async () => {
-                const link = friendLinkForSharing();
+                const link = state.server ? friendLink() : friendLinkForSharing();
                 try { await navigator.clipboard.writeText(link); toast('Đã sao chép link mời kết bạn. Gửi qua Zalo, Messenger hoặc SMS'); }
                 catch (e) { $('#copyFriendLink').insertAdjacentHTML('afterend', `<input class="input mono" readonly value="${esc(link)}" style="font-size:.7rem" onfocus="this.select()">`); toast('Nhấn Ctrl+C để sao chép link'); }
             };
             $('#newCode').onclick = async () => {
                 try {
-                    state.code = (await api('friend/code', {})).code;
+                    const r = await api('friend/code', {}); state.code = r.code; state.codeUntil = r.until;
                     myQrModal();
                     toast('Đã đổi mã QR. Mã cũ không dùng được nữa');
                 } catch (e) { toast(e.message); }
