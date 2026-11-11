@@ -608,6 +608,7 @@
                             </div>
                             <div style="display:flex;gap:.4rem;flex-wrap:wrap">
                                 <button class="btn sm hidden" id="groupInfoBtn">👥 Thành viên</button>
+                                <button class="btn sm hidden" id="lockChatBtn" title="Khóa tin nhắn ngay">🔒 Khóa</button>
                                 <button class="btn sm" id="cipherBtn">🔍 Xem gói tin mã hóa</button>
                                 <button class="btn sm danger" id="clearChatBtn">🗑 Xóa lịch sử</button>
                                 <button class="btn sm" id="sendPdfBtn">📎 Gửi PDF cần ký</button>
@@ -761,6 +762,27 @@
                         <div class="card-h"><h3>Chứng thư số X.509</h3><span class="chip green">✓ Còn hiệu lực</span></div>
                         <div class="card-b">
                             <dl class="kv" id="certInfo"></dl>
+                        </div>
+                    </div>
+                    <div class="card" id="lockCard" style="grid-column:1/-1">
+                        <div class="card-h"><h3>🔒 Bảo mật tin nhắn</h3><span class="chip" id="lockChip">Chưa bật</span></div>
+                        <div class="card-b">
+                            <p class="muted" style="font-size:.84rem">Đặt mã khóa riêng cho phần Tin nhắn. Người khác cầm máy của bạn khi app đang mở cũng không đọc được tin nhắn, và nội dung tin bị ẩn khỏi danh sách trò chuyện cho tới khi nhập đúng mã.</p>
+                            <div id="lockSet" style="display:grid;gap:.5rem;max-width:420px">
+                                <input class="input" id="lockPin" type="password" inputmode="numeric" autocomplete="new-password" maxlength="8" placeholder="Mã khóa mới (4–8 chữ số)">
+                                <input class="input" id="lockPin2" type="password" inputmode="numeric" autocomplete="new-password" maxlength="8" placeholder="Nhập lại mã khóa">
+                                <label style="font-size:.84rem">Tự khóa lại khi rời app
+                                    <select class="input" id="lockAuto" style="margin-top:.25rem">
+                                        <option value="0">Ngay khi rời app</option><option value="1">Sau 1 phút</option>
+                                        <option value="5" selected>Sau 5 phút</option><option value="15">Sau 15 phút</option><option value="-1">Chỉ khi đăng nhập lại</option>
+                                    </select></label>
+                                <div style="display:flex;gap:.4rem;flex-wrap:wrap">
+                                    <button class="btn sm primary" id="lockSave">Lưu mã khóa</button>
+                                    <button class="btn sm hidden" id="lockNow">🔒 Khóa ngay</button>
+                                    <button class="btn sm danger hidden" id="lockOff">Tắt mã khóa</button>
+                                </div>
+                                <p class="muted" style="font-size:.76rem" id="lockNote">Mã khóa đồng bộ sang các máy khác của tài khoản (đã mã hóa). Quên mã khóa: mở bằng mật khẩu tài khoản.</p>
+                            </div>
                         </div>
                     </div>
                     <div class="card hidden" id="devCard" style="grid-column:1/-1">
@@ -1237,6 +1259,7 @@
         // ============ Điều hướng ============
         const TITLES = { profile: 'Trang cá nhân', chat: 'Tin nhắn', contacts: 'Danh bạ', sign: 'Ký số PDF', verify: 'Kiểm tra chữ ký', account: 'Tài khoản & khóa' };
         function go(view) {
+            if (view === 'chat' && lockOn() && state.msgLocked) return unlockModal(() => go('chat'));
             $$('#nav button').forEach(b => b.classList.toggle('active', b.dataset.view === view));
             $$('.view').forEach(v => v.classList.add('hidden'));
             $('#view-' + view).classList.remove('hidden');
@@ -1283,7 +1306,7 @@
             clearTimeout(saveTimer);
             saveTimer = setTimeout(async () => {
                 const data = {
-                    chats: state.chats, unread: state.unread,
+                    chats: state.chats, unread: state.unread, msgLock: state.msgLock || null,
                     extraContacts: state.contacts.filter(c => c.id > 100 && !c.real && !c.group), mem: state.mem || {}, seq: state.seq || 0, blank: !!state.blank, outbox: state.outbox,
                     serverContacts: state.contacts.filter(c => c.real || c.group).map(c => ({ id: c.id, name: c.name, role: c.role, ip: c.ip, real: c.real, group: c.group, members: c.members, fp: c.fp })),
                     me: state.server ? state.me : undefined, code: state.server ? state.code : undefined,
@@ -1316,6 +1339,7 @@
                 state.chats = data.chats || {};
                 state.unread = data.unread || {}; state.mem = data.mem || {}; state.seq = data.seq || 0;
                 if (data.blank) state.blank = true;
+                if (data.msgLock && (data.msgLock.at || 0) > (state.msgLock?.at || 0)) { state.msgLock = data.msgLock; state.msgLocked = !!data.msgLock.hash; }
                 state.outbox = data.outbox || [];
                 if (state.offline && !state.me && data.me) { state.me = data.me; state.code = data.code; }
                 return Object.values(state.chats).reduce((a, l) => a + l.length, 0);
@@ -1361,6 +1385,7 @@
         function lastPreview(cid) {
             const l = (state.chats[cid] || []).at(-1);
             if (!l) return '';
+            if (lockOn() && state.msgLocked) return '🔒 Tin nhắn đã khóa';
             return (l.dir === 'out' ? 'Bạn: ' : '') + (l.file ? '📄 ' + l.file : l.text);
         }
 
@@ -3059,6 +3084,7 @@
                 const data = {
                     mySig: state.mySig || null, sigAt: state.mySigAt || 0, history: state.history.slice(0, 200), mem: state.mem || {},
                     contacts: state.contacts.filter(c => c.local).map(({ id, name, role, ip, fp }) => ({ id, name, role, ip, fp, local: true })),
+                    msgLock: state.msgLock || null,
                     saved: Date.now(),
                 };
                 try { const r = await api('vault', { env: await sealFor([state.me], JSON.stringify(data)) }); if (r.ver) state.vaultVer = r.ver; } catch (e) { }
@@ -3072,6 +3098,13 @@
                 if (env) {
                     const data = JSON.parse(await openEnvelope(env));
                     // Chữ ký: bản đổi sau cùng thắng (máy chưa có chữ ký thì nhận luôn)
+                    if (data.msgLock && (data.msgLock.at || 0) > (state.msgLock?.at || 0)) {
+                        const wasOn = lockOn();
+                        state.msgLock = data.msgLock;
+                        if (!lockOn()) state.msgLocked = false;
+                        else if (!wasOn) state.msgLocked = true; // máy khác vừa bật mã khóa: khóa luôn máy này
+                        saveChats(); applyLockUi();
+                    }
                     if (data.mySig && (!state.mySig || (data.sigAt || 0) > (state.mySigAt || 0))) {
                         state.mySig = data.mySig; state.mySigAt = data.sigAt || 0; drawImageToMyPad(data.mySig);
                     }
@@ -4134,8 +4167,97 @@
             renderDevices();
         };
 
+        // ============ Bảo mật tin nhắn: mã khóa riêng cho phần Tin nhắn ============
+        // Lưu dạng băm PBKDF2 (có muối), không lưu mã thật; đồng bộ qua két dữ liệu đã mã hóa của tài khoản.
+        async function lockHash(pin, salt) {
+            const base = await crypto.subtle.importKey('raw', enc.encode(pin), 'PBKDF2', false, ['deriveBits']);
+            const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt: unb64(salt), iterations: 150000, hash: 'SHA-256' }, base, 256);
+            return b64(bits);
+        }
+        const lockOn = () => !!state.msgLock?.hash;
+        function applyLockUi() {
+            const on = lockOn();
+            $('#lockChip').textContent = on ? (state.msgLocked ? '🔒 Đang khóa' : '🔓 Đã mở') : 'Chưa bật';
+            $('#lockChip').className = 'chip' + (on ? ' green' : '');
+            $('#lockSave').textContent = on ? 'Đổi mã khóa' : 'Lưu mã khóa';
+            $('#lockOff').classList.toggle('hidden', !on);
+            $('#lockNow').classList.toggle('hidden', !on || state.msgLocked);
+            $('#lockChatBtn').classList.toggle('hidden', !on);
+            if (on) $('#lockAuto').value = String(state.msgLock.auto ?? 5);
+            renderConvs();
+        }
+        function lockMessages() {
+            if (!lockOn()) return;
+            state.msgLocked = true;
+            if (!$('#view-chat').classList.contains('hidden')) go('profile');
+            applyLockUi();
+        }
+        function unlockModal(then) {
+            const waitLeft = () => Math.max(0, Math.ceil(((state.lockWaitUntil || 0) - Date.now()) / 1000));
+            modal('🔒 Tin nhắn đang khóa', `<p style="font-size:.88rem">Nhập mã khóa tin nhắn để xem tin nhắn.</p>
+                <input class="input" id="unlockPin" type="password" inputmode="numeric" autocomplete="off" maxlength="8" placeholder="Mã khóa" style="font-size:1.2rem;letter-spacing:.3em;text-align:center">
+                <p class="muted" id="unlockMsg" style="font-size:.8rem;min-height:1.2em"></p>
+                <button type="button" class="link-btn" id="unlockForgot" style="font-size:.8rem">Quên mã khóa? Mở bằng mật khẩu tài khoản</button>`,
+                `<button class="btn" data-close>Để sau</button><button class="btn primary" id="unlockGo">Mở khóa</button>`);
+            const tryUnlock = async () => {
+                if (waitLeft()) return $('#unlockMsg').textContent = `Sai quá nhiều lần. Thử lại sau ${waitLeft()} giây.`;
+                const pin = $('#unlockPin').value;
+                if (pin && await lockHash(pin, state.msgLock.salt) === state.msgLock.hash) {
+                    state.msgLocked = false; state.lockFails = 0;
+                    closeModal(); applyLockUi(); toast('🔓 Đã mở khóa tin nhắn');
+                    then?.();
+                    return;
+                }
+                state.lockFails = (state.lockFails || 0) + 1;
+                if (state.lockFails >= 5) { state.lockWaitUntil = Date.now() + 30000 * 2 ** Math.min(state.lockFails - 5, 4); }
+                $('#unlockMsg').textContent = waitLeft() ? `Sai quá nhiều lần. Thử lại sau ${waitLeft()} giây.` : `Mã khóa chưa đúng (lần ${state.lockFails}).`;
+                $('#unlockPin').value = ''; $('#unlockPin').focus();
+            };
+            $('#unlockGo').onclick = tryUnlock;
+            $('#unlockPin').onkeydown = e => { if (e.key === 'Enter') tryUnlock(); };
+            $('#unlockForgot').onclick = () => {
+                const box = $('#unlockPin');
+                Object.assign(box, { placeholder: 'Mật khẩu tài khoản', maxLength: 200, value: '' });
+                box.removeAttribute('inputmode');
+                box.style.letterSpacing = 'normal';
+                box.onkeydown = e => { if (e.key === 'Enter') $('#unlockGo').click(); };
+                $('#unlockMsg').textContent = 'Nhập mật khẩu đăng nhập tài khoản. Mở được thì mã khóa tin nhắn sẽ được tắt, bạn đặt lại mã mới trong Tài khoản.';
+                $('#unlockGo').textContent = 'Mở bằng mật khẩu';
+                $('#unlockGo').onclick = async () => {
+                    if (await sha256($('#unlockPin').value) !== state.passHash) return $('#unlockMsg').textContent = 'Mật khẩu tài khoản chưa đúng.';
+                    state.msgLock = { hash: null, at: Date.now() }; state.msgLocked = false; state.lockFails = 0;
+                    saveChats(); closeModal(); applyLockUi(); toast('Đã tắt mã khóa tin nhắn. Hãy đặt mã mới trong Tài khoản');
+                    then?.();
+                };
+            };
+            setTimeout(() => $('#unlockPin')?.focus(), 50);
+        }
+        $('#lockSave').onclick = async () => {
+            const a = $('#lockPin').value, b = $('#lockPin2').value;
+            if (!/^\d{4,8}$/.test(a)) return toast('Mã khóa cần từ 4 đến 8 chữ số');
+            if (a !== b) return toast('Hai lần nhập mã khóa chưa giống nhau');
+            const salt = b64(crypto.getRandomValues(new Uint8Array(16)));
+            state.msgLock = { salt, hash: await lockHash(a, salt), auto: +$('#lockAuto').value, at: Date.now() };
+            state.msgLocked = false;
+            $('#lockPin').value = $('#lockPin2').value = '';
+            saveChats(); applyLockUi();
+            toast('🔒 Đã bật mã khóa tin nhắn');
+        };
+        $('#lockAuto').onchange = () => { if (lockOn()) { state.msgLock.auto = +$('#lockAuto').value; state.msgLock.at = Date.now(); saveChats(); } };
+        $('#lockOff').onclick = () => unlockModal(() => { state.msgLock = { hash: null, at: Date.now() }; saveChats(); applyLockUi(); toast('Đã tắt mã khóa tin nhắn'); });
+        $('#lockNow').onclick = () => { lockMessages(); toast('🔒 Đã khóa tin nhắn'); };
+        $('#lockChatBtn').onclick = () => { lockMessages(); toast('🔒 Đã khóa tin nhắn'); };
+        // Tự khóa khi rời app (ẩn tab, chuyển app, tắt màn hình) quá thời gian đã chọn
+        document.addEventListener('visibilitychange', () => {
+            if (!lockOn() || state.msgLocked) return;
+            if (document.hidden) { state.hiddenAt = Date.now(); return; }
+            const auto = state.msgLock.auto ?? 5;
+            if (auto >= 0 && state.hiddenAt && Date.now() - state.hiddenAt >= auto * 60000) lockMessages();
+        });
+
         function renderAccount() {
             renderDevices();
+            applyLockUi();
             const today = new Date(), until = new Date(today);
             until.setFullYear(today.getFullYear() + 2);
             $('#accName').textContent = state.user;
