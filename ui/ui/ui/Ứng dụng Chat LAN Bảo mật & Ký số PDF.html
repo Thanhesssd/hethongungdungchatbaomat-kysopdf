@@ -134,6 +134,9 @@
 
         /* ===== Tin nhắn ===== */
         .chat { height: 100%; display: grid; grid-template-columns: 300px 1fr; }
+        .chat.list-only { grid-template-columns: 1fr; }
+        .chat.list-only .thread { display: none; }
+        .chat.list-only .conv-list { border-right: 0; }
         .conv-list { border-right: 1px solid var(--border); background: var(--panel); overflow: auto; }
         .conv-search { padding: .8rem; border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--panel); }
         .conv { display: flex; gap: .7rem; padding: .75rem .9rem; cursor: pointer; border-left: 3px solid transparent; }
@@ -389,7 +392,6 @@
             .net { display: none; }
             .chat { grid-template-columns: 1fr; }
             .chat.in-thread .conv-list, .chat:not(.in-thread) .thread { display: none; }
-            .back-btn { display: inline-flex !important; }
             .msg { max-width: 85%; }
             .sign { grid-template-columns: 1fr; height: auto; }
             .side-panel { border-left: 0; border-top: 1px solid var(--border); }
@@ -401,7 +403,7 @@
             .kv dd { margin-bottom: .4rem; }
             .sig-body { padding-left: 1rem; }
         }
-        .back-btn { display: none !important; }
+        .back-btn { display: inline-flex; white-space: nowrap; }
     </style>
 </head>
 
@@ -600,7 +602,7 @@
                     <div class="thread">
                         <div class="thread-h">
                             <div class="who">
-                                <button class="btn sm back-btn" id="backBtn">←</button>
+                                <button class="btn sm back-btn" id="backBtn" title="Thoát cuộc trò chuyện (vẫn giữ đăng nhập)">← Thoát</button>
                                 <div class="av-wrap"><div class="avatar" id="tAvatar"></div><span class="dot" id="tDot"></span></div>
                                 <div><b id="tName"></b><br><small id="tInfo"></small></div>
                             </div>
@@ -975,7 +977,10 @@
                 state.stopDiscovery = true;
                 const best = await pickServer().catch(() => null);
                 state.stopDiscovery = false;
-                if (!best || !state.forceLocal) continue;
+                if (!best || !state.forceLocal) {
+                    if (state.pendingAdd && $('#upMsg')) $('#upMsg').textContent = 'Chưa tới được máy chủ, đang thử lại… (kiểm tra mạng của điện thoại; máy chủ trên laptop phải đang bật)';
+                    continue;
+                }
                 const keep = { server: state.server, apiBase: state.apiBase, passHash: state.passHash, histId: state.histId, histKey: state.histKey };
                 const fp = $('#fPass');
                 try {
@@ -1006,6 +1011,8 @@
                 await saveSession();
                 if (!remember) try { sessionStorage.setItem('lanchat-once', '1'); } catch (e) { }
                 toast(how === 'register' ? '🟢 Đã kết nối máy chủ. Tài khoản của bạn đã được tạo trên máy chủ' : '🟢 Đã kết nối máy chủ. Đang mở danh bạ và tin nhắn của bạn…');
+                // Đang chờ kết bạn từ mã QR vừa quét: mở lại app là tự kết bạn luôn
+                if (state.pendingAdd) history.replaceState(null, '', location.pathname + '#add=' + state.pendingAdd);
                 setTimeout(() => location.reload(), 1200);
                 return;
             }
@@ -1140,6 +1147,7 @@
             if (mode === 'login') toast(`✅ Đăng nhập thành công. Chào mừng ${state.user}!`);
             if (!state.server && name !== SAMPLE_USER) {
                 state.forceLocal = true;
+                state.pendingAdd ||= parseFriendCode(location.hash);
                 netStatus('off', 'Đang tự tìm máy chủ · tài khoản sẽ tự chuyển lên máy chủ khi kết nối được', true);
                 upgradeWhenServerBack(name, $('#fPass').value, $('#fRemember').checked, mode);
             }
@@ -1180,6 +1188,7 @@
         async function enterApp() {
             $('#loginScreen').classList.add('hidden');
             $('#appScreen').classList.remove('hidden');
+            setTimeout(guardBack, 0);
             $('#meName').textContent = state.user;
             for (const id of ['#meAvatar', '#accAvatar']) {
                 $(id).textContent = initials(state.user);
@@ -1373,6 +1382,7 @@
         $('#convSearch').oninput = renderConvs;
 
         function openChat(id, initial) {
+            if (!initial) $('#chatLayout').classList.remove('list-only');
             const found = state.contacts.find(x => x.id === id);
             $('#chatLayout').classList.toggle('no-chat', !found);
             if (!found) {
@@ -1397,11 +1407,34 @@
             $('#groupInfoBtn').classList.toggle('hidden', !c.group);
             $('#tInfo').textContent = c.group ? `Nhóm · ${c.members.length} thành viên · mã hóa cho từng người`
                 : `${c.role} · ${c.ip} · ${c.status === 'on' ? 'Đang online' : c.status === 'busy' ? 'Bận' : 'Offline'}`;
-            if (!initial) $('#chatLayout').classList.add('in-thread');
+            if (!initial) {
+                if (matchMedia('(max-width: 860px)').matches && !$('#chatLayout').classList.contains('in-thread')) history.pushState({ lanApp: 1, lanThread: 1 }, '', location.href);
+                $('#chatLayout').classList.add('in-thread');
+            }
             renderConvs();
             renderMsgs();
         }
-        $('#backBtn').onclick = () => $('#chatLayout').classList.remove('in-thread');
+        // Thoát cuộc trò chuyện: về danh sách trò chuyện để đọc tin người khác (không đăng xuất)
+        function leaveThread() {
+            $('#chatLayout').classList.remove('in-thread');
+            $('#chatLayout').classList.add('list-only');
+            renderConvs();
+        }
+        $('#backBtn').onclick = () => {
+            if (history.state?.lanThread) history.back(); // để nút Back của điện thoại khớp với nút Thoát
+            else leaveThread();
+        };
+        // Nút Back / vuốt quay lại của điện thoại: chỉ thoát cuộc trò chuyện hoặc quay về, không rời app và không mất đăng nhập
+        function guardBack() { if (!history.state?.lanApp) history.pushState({ lanApp: 1 }, '', location.href); }
+        window.addEventListener('popstate', () => {
+            if ($('#appScreen').classList.contains('hidden')) return;
+            if ($('#chatLayout').classList.contains('in-thread')) { leaveThread(); return; }
+            if (!$('#view-chat').classList.contains('hidden') || !$('#view-profile').classList.contains('hidden')) {
+                if ($('#view-profile').classList.contains('hidden')) go('profile');
+                else toast('Bạn vẫn đang đăng nhập. Muốn thoát tài khoản: vào Tài khoản → Đăng xuất');
+            } else go('profile');
+            guardBack();
+        });
 
         // ✓ máy chủ đã nhận tin; ✓✓ máy người nhận đã nhận và giải mã (ACK)
         function tickFor(m) {
@@ -2216,6 +2249,13 @@
                 const r0 = loadRoutes();
                 if (srvId && r0?.id && r0.id !== srvId) saveRoutes({ id: srvId, lan: [], public: null });
                 addRoutesFromLink(hosts);
+                if (state.forceLocal && state.user && state.upgrading) {
+                    state.pendingAdd = addCode;
+                    state.upgradeNow = true;
+                    modal('Đang kết nối máy chủ', `<p style="font-size:.9rem">⏳ Đang đưa tài khoản <b>${esc(state.user)}</b> lên máy chủ, xong sẽ tự kết bạn với người này.</p>
+                        <p class="muted" style="font-size:.84rem" id="upMsg">Bạn không cần làm gì, không cần đăng nhập lại.</p>`, `<button class="btn" data-close>Ẩn</button>`);
+                    return true;
+                }
                 modal('Mã kết bạn của máy chủ LAN', `<p style="font-size:.86rem">Đang tìm đường kết nối tới máy chủ của người này (Wi‑Fi, địa chỉ mới nhất, Internet)…</p>
                     <div class="muted" id="fqDiag" style="font-size:.84rem">⏳ Đang kết nối…</div>`,
                     `<button class="btn" data-close>Để sau</button><button class="btn primary" id="fqGo" disabled>Vào máy chủ và kết bạn</button>`);
