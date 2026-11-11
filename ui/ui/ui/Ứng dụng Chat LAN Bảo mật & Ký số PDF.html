@@ -3158,30 +3158,32 @@
         // Két gồm: danh bạ thêm tay (liên hệ nhập tên + IP), chữ ký đồ họa, lịch sử ký, ghi nhớ trợ lý.
         // Máy khác đang mở cùng tài khoản thấy số phiên bản mới trong /api/sync thì tự tải lại và gộp.
         let vaultTimer = null, vaultBusy = false;
-        async function vaultSaveNow() {
-            if (!state.server || !state.token || !state.vaultReady) return false;
-            clearTimeout(vaultTimer);
-            const data = {
+        function vaultData() {
+            return {
                 mySig: state.mySig || null, sigAt: state.mySigAt || 0, history: state.history.slice(0, 200), mem: state.mem || {},
                 contacts: state.contacts.filter(c => c.local).map(({ id, name, role, ip, fp }) => ({ id, name, role, ip, fp, local: true })),
                 msgLock: state.msgLock || null, cover: state.cover || null, coverAt: state.coverAt || 0,
-                saved: Date.now(),
             };
-            try { const r = await api('vault', { env: await sealFor([state.me], JSON.stringify(data)) }); if (r.ver) state.vaultVer = r.ver; return true; }
-            catch (e) { vaultSave(); return false; }
+        }
+        // Gửi két lên máy chủ. Không đổi gì so với lần gửi trước thì bỏ qua: trước đây mỗi vòng đồng bộ đều gửi lại,
+        // mỗi lần gửi lại đánh thức đồng bộ của mọi máy, thành vòng lặp gửi liên tục khoảng 1,5 giây một lần.
+        async function vaultPush(force) {
+            if (!state.server || !state.token || !state.vaultReady) return false;
+            const json = JSON.stringify(vaultData());
+            if (!force && json === state.vaultSent) return true;
+            const r = await api('vault', { env: await sealFor([state.me], JSON.stringify({ ...JSON.parse(json), saved: Date.now() })) });
+            state.vaultSent = json;
+            if (r.ver) state.vaultVer = r.ver;
+            return true;
+        }
+        async function vaultSaveNow() {
+            clearTimeout(vaultTimer);
+            try { return await vaultPush(); } catch (e) { vaultSave(); return false; }
         }
         function vaultSave() {
             if (!state.server || !state.token || !state.vaultReady) return;
             clearTimeout(vaultTimer);
-            vaultTimer = setTimeout(async () => {
-                const data = {
-                    mySig: state.mySig || null, sigAt: state.mySigAt || 0, history: state.history.slice(0, 200), mem: state.mem || {},
-                    contacts: state.contacts.filter(c => c.local).map(({ id, name, role, ip, fp }) => ({ id, name, role, ip, fp, local: true })),
-                    msgLock: state.msgLock || null, cover: state.cover || null, coverAt: state.coverAt || 0,
-                    saved: Date.now(),
-                };
-                try { const r = await api('vault', { env: await sealFor([state.me], JSON.stringify(data)) }); if (r.ver) state.vaultVer = r.ver; } catch (e) { }
-            }, 1500);
+            vaultTimer = setTimeout(() => vaultPush().catch(() => { }), 1500);
         }
         async function vaultLoad() {
             if (vaultBusy) return;
@@ -3223,6 +3225,7 @@
             vaultBusy = false;
             // Lần đầu đăng nhập ở máy này: đẩy dữ liệu sẵn có của máy lên để máy khác cũng có
             if (vaultLoaded && !state.vaultReady) { state.vaultReady = true; vaultSave(); }
+            else if (vaultLoaded) vaultSave(); // chỉ thực sự gửi nếu bản gộp khác bản đã gửi
         }
 
         // Giao diện thật khi đăng nhập qua máy chủ LAN
@@ -4654,6 +4657,9 @@
             repaintAvatars();
         }
         $$('[data-av="pick"]').forEach(b => b.onclick = () => $('#avatarFile').click());
+        window.addEventListener('beforeunload', e => {
+            if (state.avDraft || state.coverDraft) { e.preventDefault(); e.returnValue = 'Ảnh bạn vừa chọn chưa được lưu. Bấm 💾 Lưu trước khi rời trang.'; }
+        });
         for (const s of ['#accAvatar', '#pAvatar']) { $(s).style.cursor = 'pointer'; $(s).title = 'Đổi ảnh đại diện'; $(s).onclick = () => $('#avatarFile').click(); }
         $('#avatarFile').onchange = async e => {
             const file = e.target.files[0];
