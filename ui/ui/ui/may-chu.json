@@ -1,10 +1,6 @@
 {
- "id": "8608170deb95bca4",
+ "id": null,
  "public": "https://expanding-embassy-nuke-terrace.trycloudflare.com",
- "lan": [
-  "192.168.156.1:8443",
-  "192.168.205.1:8443",
-  "192.168.8.106:8443"
- ],
- "at": 1794413085
+ "lan": [],
+ "at": 1794413238
 }
