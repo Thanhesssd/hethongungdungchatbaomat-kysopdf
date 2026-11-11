@@ -543,9 +543,11 @@
                             <span class="chip" id="pSigChip"></span>
                         </div>
                         <div class="cover-btns">
+                            <button class="btn sm" type="button" data-av="pick">📷 Đổi ảnh đại diện</button>
                             <button class="btn sm" id="coverBtn" type="button" data-cover="pick">🖼️ Tải ảnh nền</button>
                             <button class="btn sm hidden" id="coverDel" type="button" data-cover="del">Xóa ảnh nền</button>
                             <input type="file" id="coverFile" accept="image/*" hidden>
+                            <input type="file" id="avatarFile" accept="image/*" hidden>
                         </div>
                     </div>
 
@@ -785,7 +787,11 @@
                         <div class="card-b">
                             <div class="profile">
                                 <div class="avatar" id="accAvatar" style="background:#2563eb"></div>
-                                <div><b id="accName" style="font-size:1.05rem"></b><br><span class="muted" id="accAddr">Bản minh họa · chưa kết nối máy chủ</span></div>
+                                <div><b id="accName" style="font-size:1.05rem"></b><br><span class="muted" id="accAddr">Bản minh họa · chưa kết nối máy chủ</span>
+                                <div class="cover-btns" style="margin-top:.5rem">
+                                    <button class="btn sm" type="button" data-av="pick">📷 Đổi ảnh đại diện</button>
+                                    <button class="btn sm hidden" type="button" data-av="del">Xóa ảnh đại diện</button>
+                                </div></div>
                             </div>
                             <dl class="kv" style="margin-top:1rem">
                                 <dt>Mã băm mật khẩu</dt><dd class="mono" id="accHash"></dd>
@@ -885,7 +891,11 @@
         const initials = n => n.trim().split(/\s+/).pop()[0].toUpperCase();
         const COLORS = ['#2563eb', '#7c3aed', '#db2777', '#ea580c', '#0d9488', '#4f46e5', '#16a34a'];
         const colorOf = n => COLORS[[...n].reduce((a, c) => a + c.charCodeAt(0), 0) % COLORS.length];
-        const avatarHtml = n => `<div class="avatar" style="background:${colorOf(n)}">${esc(initials(n))}</div>`;
+        const avatarHtml = (n, id) => {
+            const img = avImg(id);
+            return img ? `<div class="avatar" style="background:center / cover no-repeat url(&quot;${img}&quot;)"></div>`
+                : `<div class="avatar" style="background:${colorOf(n)}">${esc(initials(n))}</div>`;
+        };
 
         function toast(msg) {
             const t = $('#toast');
@@ -1262,10 +1272,7 @@
             $('#appScreen').classList.remove('hidden');
             setTimeout(guardBack, 0);
             $('#meName').textContent = state.user;
-            for (const id of ['#meAvatar', '#accAvatar']) {
-                $(id).textContent = initials(state.user);
-                $(id).style.background = colorOf(state.user);
-            }
+            paintMyAvatars();
             const restored = await loadChats();
             if (state.blank) {
                 // Bỏ liên hệ mẫu; chỉ giữ người đã kết bạn (thêm qua QR hoặc từ máy chủ)
@@ -1444,7 +1451,7 @@
             const q = $('#convSearch').value.toLowerCase();
             $('#convList').innerHTML = state.contacts.filter(c => c.name.toLowerCase().includes(q)).map(c => `
                 <div class="conv ${c.id === state.active ? 'active' : ''}" data-id="${c.id}">
-                    <div class="av-wrap">${avatarHtml(c.name)}<span class="dot ${c.status}"></span></div>
+                    <div class="av-wrap">${avatarHtml(c.name, c.id)}<span class="dot ${c.status}"></span></div>
                     <div class="meta">
                         <div class="row"><b>${esc(c.name)}</b><small>${(state.chats[c.id] || []).at(-1)?.time || ''}</small></div>
                         <div class="row"><p>${esc(lastPreview(c.id))}</p>${state.unread[c.id] ? `<span class="chip">${state.unread[c.id]}</span>` : ''}</div>
@@ -1477,8 +1484,7 @@
             delete state.unread[id];
             saveChats();
             const c = state.contacts.find(x => x.id === id);
-            $('#tAvatar').textContent = initials(c.name);
-            $('#tAvatar').style.background = colorOf(c.name);
+            paintAvatar($('#tAvatar'), c.name, c.id);
             $('#tDot').className = 'dot ' + c.status;
             $('#tName').textContent = c.name;
             $('#groupInfoBtn').classList.toggle('hidden', !c.group);
@@ -1961,6 +1967,7 @@
                 Object.assign(c, { pub: p.pub, fp: p.fp, status: u.online ? 'on' : 'off' });
             }
             state.friendsLoaded = true;
+            noteAvatars([...d.users, ...(d.incoming || []), ...(d.outgoing || []), ...(d.suggestions || []), ...(d.me ? [d.me] : [])]);
             for (const g of d.groups) {
                 const c = state.contacts.find(x => x.id === g.id);
                 if (c) { c.members = g.members; continue; }
@@ -2048,7 +2055,7 @@
         function renderRequestPopups() {
             const list = (state.social?.incoming || []).filter(u => !dismissedReq.has(u.id));
             $('#reqPop').innerHTML = list.slice(0, 3).map(u => `<div class="req-card" role="alert">
-                <div class="person">${avatarHtml(u.name)}<div><b>${esc(u.name)}</b><br><small class="muted">muốn kết bạn với bạn</small></div></div>
+                <div class="person">${avatarHtml(u.name, u.id)}<div><b>${esc(u.name)}</b><br><small class="muted">muốn kết bạn với bạn</small></div></div>
                 <div class="acts"><button class="btn sm" data-req-later="${u.id}">Để sau</button><button class="btn sm danger" data-friend="decline:${u.id}">Từ chối</button><button class="btn sm primary" data-friend="accept:${u.id}">Đồng ý</button></div>
             </div>`).join('');
             bindFriendButtons($('#reqPop'));
@@ -2077,7 +2084,7 @@
             });
         }
 
-        const socRow = (u, sub, acts) => `<div class="soc-row">${avatarHtml(u.name)}
+        const socRow = (u, sub, acts) => `<div class="soc-row">${avatarHtml(u.name, u.id)}
             <div class="grow"><b>${esc(u.name)}</b><small>${sub}</small></div><div class="acts">${acts}</div></div>`;
         const onlineText = u => u.online ? 'Đang online' : 'Offline';
 
@@ -2504,7 +2511,7 @@
                     else toast(`📨 Đã gửi lời mời kết bạn tới ${u.name}`);
                     return;
                 }
-                modal('Kết bạn', `<div class="person" style="padding:.4rem 0">${avatarHtml(u.name)}<b>${esc(u.name)}</b></div>
+                modal('Kết bạn', `<div class="person" style="padding:.4rem 0">${avatarHtml(u.name, u.id)}<b>${esc(u.name)}</b></div>
                     <p class="muted">${u.relation === 'incoming' ? 'Người này đã mời bạn kết bạn. Đồng ý để hai bạn nhắn tin được ngay.'
                         : u.relation === 'outgoing' ? 'Bạn đã gửi lời mời. Đang chờ người này đồng ý.'
                             : 'Quét mã QR là kết bạn luôn: hai bạn thấy nhau trong danh bạ và nhắn tin được ngay, không cần chờ đồng ý.'}</p>`,
@@ -3540,7 +3547,7 @@
             const rows = people.filter(c => (c.name + c.ip).toLowerCase().includes(q));
             $('#contactRows').innerHTML = rows.map(c => `
                 <tr>
-                    <td><div class="person">${avatarHtml(c.name)}<div><b>${esc(c.name)}</b><br><small class="muted">${esc(c.role)}</small></div></div></td>
+                    <td><div class="person">${avatarHtml(c.name, c.id)}<div><b>${esc(c.name)}</b><br><small class="muted">${esc(c.role)}</small></div></div></td>
                     <td class="mono">${c.real ? c.ip : 'Liên hệ mẫu'}</td>
                     <td><span class="dot ${c.status}"></span> ${c.status === 'on' ? 'Online' : c.status === 'busy' ? 'Bận' : 'Offline'}</td>
                     <td class="mono muted" style="font-size:.75rem">${fmtFp(c.fp)}</td>
@@ -4064,8 +4071,7 @@
         function renderProfile() {
             applyCover();
             const until = new Date(); until.setFullYear(until.getFullYear() + 2);
-            $('#pAvatar').textContent = initials(state.user);
-            $('#pAvatar').style.background = colorOf(state.user);
+            paintMyAvatars();
             $('#pName').textContent = state.user;
             $('#pWelcome').textContent = state.isNew
                 ? '🎉 Tài khoản vừa được tạo. Khóa và chứng thư số đã được khởi tạo tự động.'
@@ -4080,13 +4086,13 @@
             // Hội thoại gần đây (đã giải mã)
             $('#pChats').innerHTML = state.contacts.slice(0, 3).map(c => `
                 <div class="mini-conv" data-c="${c.id}">
-                    <div class="av-wrap">${avatarHtml(c.name)}<span class="dot ${c.status}"></span></div>
+                    <div class="av-wrap">${avatarHtml(c.name, c.id)}<span class="dot ${c.status}"></span></div>
                     <div class="meta"><b style="font-size:.84rem">${esc(c.name)}</b><p>🔓 ${esc(lastPreview(c.id))}</p></div>
                     ${state.unread[c.id] ? `<span class="chip">${state.unread[c.id]}</span>` : ''}
                 </div>`).join('') || '<div class="soc-empty">Chưa có bạn bè. Bấm Quét QR hoặc vào Danh bạ để kết bạn.</div>';
             $$('.mini-conv').forEach(el => el.onclick = () => { go('chat'); openChat(+el.dataset.c); });
             const online = state.contacts.filter(c => c.status === 'on');
-            $('#pAvs').innerHTML = state.contacts.slice(0, 5).map(c => avatarHtml(c.name)).join('');
+            $('#pAvs').innerHTML = state.contacts.slice(0, 5).map(c => avatarHtml(c.name, c.id)).join('');
             $('#pOnline').textContent = `${online.length}/${state.contacts.length} online`;
 
             // Kho tài liệu
@@ -4323,8 +4329,7 @@
             $('#callBox').classList.remove('hidden');
             $('#callBox').classList.toggle('video', video);
             $('#callBox').classList.remove('live');
-            $('#callAvatar').textContent = initials(c.name);
-            $('#callAvatar').style.background = colorOf(c.name);
+            paintAvatar($('#callAvatar'), c.name, c.id);
             $('#callName').textContent = c.name;
             $('#callState').textContent = stateText;
             $('#callAccept').classList.add('hidden');
@@ -4510,6 +4515,95 @@
             } catch (err) { toast('Không đọc được ảnh này'); }
         };
         $$('[data-cover="del"]').forEach(b => b.onclick = () => { state.cover = null; state.coverAt = Date.now(); applyCover(); saveChats(); toast('Đã xóa ảnh nền'); });
+
+
+        // ============ Ảnh đại diện ============
+        // Ảnh được cắt vuông, thu nhỏ 256 px trên máy. Có máy chủ: lưu trên máy chủ để bạn bè thấy; bản minh họa: lưu trên máy này.
+        // (khai báo kiểu function để dùng được ở mọi chỗ vẽ avatar, kể cả trước đoạn mã này)
+        function avStore() {
+            if (!window.__av) { try { window.__av = JSON.parse(localStorage.getItem('lanchat-avatars') || '{}'); } catch (e) { window.__av = {}; } }
+            return window.__av;
+        }
+        function saveAvCache() { try { localStorage.setItem('lanchat-avatars', JSON.stringify(avStore())); } catch (e) { } }
+        function avKey(id) { return state.server ? (loadRoutes()?.id || 'srv') + ':' + id : 'local:' + id; }
+        function avImg(id) { return id != null ? avStore()[avKey(id)]?.img || null : null; }
+        function paintAvatar(el, name, id) {
+            if (!el) return;
+            const img = avImg(id);
+            el.textContent = img ? '' : initials(name);
+            el.style.background = img ? `center / cover no-repeat url("${img}")` : colorOf(name);
+        }
+        function paintMyAvatars() {
+            for (const s of ['#meAvatar', '#accAvatar', '#pAvatar']) paintAvatar($(s), state.user, state.me ?? state.user);
+            $$('[data-av="del"]').forEach(b => b.classList.toggle('hidden', !avImg(state.me ?? state.user)));
+        }
+        function repaintAvatars() {
+            paintMyAvatars();
+            renderConvs();
+            if (typeof renderContacts === 'function') renderContacts();
+            const c = state.contacts.find(x => x.id === state.active);
+            if (c) paintAvatar($('#tAvatar'), c.name, c.id);
+            if (!$('#view-profile').classList.contains('hidden')) renderProfile();
+        }
+        // Đồng bộ: thấy số phiên bản ảnh mới của ai thì tải ảnh người đó về (gom lại, tải lần lượt)
+        const avQueue = new Set();
+        let avBusy = false;
+        function noteAvatars(list) {
+            for (const u of list || []) {
+                if (u.av == null) continue;
+                const k = avKey(u.id), have = avStore()[k]?.at || 0;
+                if (u.av > have) avQueue.add(u.id);
+            }
+            pumpAvatars();
+        }
+        async function pumpAvatars() {
+            if (avBusy || !avQueue.size || !state.token) return;
+            avBusy = true;
+            let changed = false;
+            try {
+                for (const id of [...avQueue]) {
+                    avQueue.delete(id);
+                    try { const r = await api('avatar?id=' + id); avStore()[avKey(id)] = { img: r.img || null, at: r.at || 0 }; changed = true; } catch (e) { }
+                }
+            } finally { avBusy = false; }
+            if (changed) { saveAvCache(); repaintAvatars(); }
+        }
+        async function squareImage(file, size = 256) {
+            const url = URL.createObjectURL(file);
+            try {
+                const img = await new Promise((ok, bad) => { const i = new Image(); i.onload = () => ok(i); i.onerror = bad; i.src = url; });
+                const s = Math.min(img.width, img.height);
+                const cv = document.createElement('canvas');
+                cv.width = cv.height = size;
+                cv.getContext('2d').drawImage(img, (img.width - s) / 2, (img.height - s) / 2, s, s, 0, 0, size, size);
+                for (let q = .85; q > .3; q -= .1) { const d = cv.toDataURL('image/jpeg', q); if (d.length < 120000) return d; }
+                return cv.toDataURL('image/jpeg', .3);
+            } finally { URL.revokeObjectURL(url); }
+        }
+        async function setMyAvatar(img) {
+            const me = state.me ?? state.user;
+            if (state.server && state.token) {
+                const r = await api('avatar', { img });
+                avStore()[avKey(me)] = { img, at: r.at };
+            } else {
+                avStore()[avKey(me)] = { img, at: Date.now() };
+            }
+            saveAvCache();
+            repaintAvatars();
+        }
+        $$('[data-av="pick"]').forEach(b => b.onclick = () => $('#avatarFile').click());
+        for (const s of ['#accAvatar', '#pAvatar']) { $(s).style.cursor = 'pointer'; $(s).title = 'Đổi ảnh đại diện'; $(s).onclick = () => $('#avatarFile').click(); }
+        $('#avatarFile').onchange = async e => {
+            const file = e.target.files[0];
+            e.target.value = '';
+            if (!file) return;
+            if (!file.type.startsWith('image/')) return toast('Hãy chọn một file ảnh (JPG, PNG…)');
+            try { await setMyAvatar(await squareImage(file)); toast(state.server ? '📷 Đã đổi ảnh đại diện. Bạn bè sẽ thấy ảnh mới' : '📷 Đã đổi ảnh đại diện'); }
+            catch (err) { toast(err.message || 'Không đọc được ảnh này'); }
+        };
+        $$('[data-av="del"]').forEach(b => b.onclick = async () => {
+            try { await setMyAvatar(null); toast('Đã xóa ảnh đại diện'); } catch (err) { toast(err.message); }
+        });
 
         function renderAccount() {
             renderDevices();
