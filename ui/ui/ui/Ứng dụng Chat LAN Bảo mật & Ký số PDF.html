@@ -2017,6 +2017,14 @@
             }
             if (d.me && state.vaultReady && (state.coverAt || 0) > (d.me.cv || 0) && !state.coverPushing) {
                 state.coverPushing = true; pushCover().finally(() => { state.coverPushing = false; });
+            } else if (d.me && (d.me.cv || 0) > (state.coverAt || 0) && !state.coverPulling) {
+                state.coverPulling = true;
+                api('cover?id=' + state.me).then(r => {
+                    if ((r.at || 0) > (state.coverAt || 0)) {
+                        state.cover = r.img || null; state.coverAt = r.at;
+                        saveChats(); applyCover();
+                    }
+                }).catch(() => { }).finally(() => { state.coverPulling = false; });
             }
             noteAvatars([...d.users, ...(d.incoming || []), ...(d.outgoing || [])]); // người lạ (gợi ý) không xem được ảnh
             for (const g of d.groups) {

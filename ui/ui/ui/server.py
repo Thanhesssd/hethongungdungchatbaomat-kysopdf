@@ -561,9 +561,7 @@ class Handler(BaseHTTPRequestHandler):
             user["vault"] = env
             # Số phiên bản tăng mỗi lần lưu; máy khác của cùng tài khoản thấy số mới trong /api/sync thì tải lại
             user["vaultVer"] = user.get("vaultVer", 0) + 1
-            self.store.rseq += 1  # đánh thức các máy đang chờ đồng bộ
             self.store.save()
-            self.store.cond.notify_all()
             ver = user["vaultVer"]
         self.send_json({"ok": True, "ver": ver})
 
