@@ -350,6 +350,7 @@
         .acc-cover { height: 150px; display: flex; align-items: flex-end; justify-content: space-between; gap: .5rem; padding: .7rem; flex-wrap: wrap;
             background: linear-gradient(120deg, var(--primary-soft), transparent 70%), var(--panel); background-size: cover; background-position: center; border-bottom: 1px solid var(--border); }
         .acc-cover.has-cover #accCoverHint { visibility: hidden; }
+        .acc-cover.draft, .hero-card.draft { outline: 3px dashed var(--primary); outline-offset: -3px; }
 
         .hero-card h2 { font-size: 1.35rem; line-height: 1.3; }
         .hero-card .grow { flex: 1; min-width: 220px; }
@@ -546,6 +547,12 @@
                             <button class="btn sm" type="button" data-av="pick">📷 Đổi ảnh đại diện</button>
                             <button class="btn sm" id="coverBtn" type="button" data-cover="pick">🖼️ Tải ảnh nền</button>
                             <button class="btn sm hidden" id="coverDel" type="button" data-cover="del">Xóa ảnh nền</button>
+                            <button class="btn sm primary hidden" type="button" data-av="save">💾 Lưu ảnh đại diện</button>
+                                    <button class="btn sm hidden" type="button" data-av="cancel">Hủy</button>
+                                    <button class="btn sm hidden" type="button" data-av="dl">⬇ Tải ảnh đại diện</button>
+                            <button class="btn sm primary hidden" type="button" data-cover="save">💾 Lưu ảnh nền</button>
+                                <button class="btn sm hidden" type="button" data-cover="cancel">Hủy</button>
+                                <button class="btn sm hidden" type="button" data-cover="dl">⬇ Tải ảnh nền</button>
                             <input type="file" id="coverFile" accept="image/*" hidden>
                             <input type="file" id="avatarFile" accept="image/*" hidden>
                         </div>
@@ -782,6 +789,9 @@
                             <div class="cover-btns">
                                 <button class="btn sm" type="button" data-cover="pick">🖼️ Tải ảnh nền</button>
                                 <button class="btn sm hidden" type="button" data-cover="del">Xóa ảnh nền</button>
+                                <button class="btn sm primary hidden" type="button" data-cover="save">💾 Lưu ảnh nền</button>
+                                <button class="btn sm hidden" type="button" data-cover="cancel">Hủy</button>
+                                <button class="btn sm hidden" type="button" data-cover="dl">⬇ Tải về</button>
                             </div>
                         </div>
                         <div class="card-b">
@@ -791,6 +801,9 @@
                                 <div class="cover-btns" style="margin-top:.5rem">
                                     <button class="btn sm" type="button" data-av="pick">📷 Đổi ảnh đại diện</button>
                                     <button class="btn sm hidden" type="button" data-av="del">Xóa ảnh đại diện</button>
+                                    <button class="btn sm primary hidden" type="button" data-av="save">💾 Lưu ảnh đại diện</button>
+                                    <button class="btn sm hidden" type="button" data-av="cancel">Hủy</button>
+                                    <button class="btn sm hidden" type="button" data-av="dl">⬇ Tải về</button>
                                 </div></div>
                             </div>
                             <dl class="kv" style="margin-top:1rem">
@@ -3137,6 +3150,18 @@
         // Két gồm: danh bạ thêm tay (liên hệ nhập tên + IP), chữ ký đồ họa, lịch sử ký, ghi nhớ trợ lý.
         // Máy khác đang mở cùng tài khoản thấy số phiên bản mới trong /api/sync thì tự tải lại và gộp.
         let vaultTimer = null, vaultBusy = false;
+        async function vaultSaveNow() {
+            if (!state.server || !state.token || !state.vaultReady) return false;
+            clearTimeout(vaultTimer);
+            const data = {
+                mySig: state.mySig || null, sigAt: state.mySigAt || 0, history: state.history.slice(0, 200), mem: state.mem || {},
+                contacts: state.contacts.filter(c => c.local).map(({ id, name, role, ip, fp }) => ({ id, name, role, ip, fp, local: true })),
+                msgLock: state.msgLock || null, cover: state.cover || null, coverAt: state.coverAt || 0,
+                saved: Date.now(),
+            };
+            try { const r = await api('vault', { env: await sealFor([state.me], JSON.stringify(data)) }); if (r.ver) state.vaultVer = r.ver; return true; }
+            catch (e) { vaultSave(); return false; }
+        }
         function vaultSave() {
             if (!state.server || !state.token || !state.vaultReady) return;
             clearTimeout(vaultTimer);
@@ -4482,12 +4507,19 @@
         // ============ Ảnh nền hồ sơ ============
         // Ảnh được thu nhỏ trên máy (tối đa 1400 px) rồi lưu vào két dữ liệu đã mã hóa, có trên mọi thiết bị của tài khoản.
         function applyCover() {
+            const img = state.coverDraft || state.cover, draft = !!state.coverDraft;
             const hc = $('#view-profile .hero-card');
-            hc.classList.toggle('has-cover', !!state.cover);
-            hc.style.backgroundImage = state.cover ? `linear-gradient(rgba(0,0,0,.25), rgba(0,0,0,.55)), url("${state.cover}")` : '';
-            $('#accCover').classList.toggle('has-cover', !!state.cover);
-            $('#accCover').style.backgroundImage = state.cover ? `url("${state.cover}")` : '';
-            $$('[data-cover="del"]').forEach(b => b.classList.toggle('hidden', !state.cover));
+            hc.classList.toggle('has-cover', !!img);
+            hc.classList.toggle('draft', draft);
+            hc.style.backgroundImage = img ? `linear-gradient(rgba(0,0,0,.25), rgba(0,0,0,.55)), url("${img}")` : '';
+            $('#accCover').classList.toggle('has-cover', !!img);
+            $('#accCover').classList.toggle('draft', draft);
+            $('#accCover').style.backgroundImage = img ? `url("${img}")` : '';
+            $('#accCoverHint').textContent = draft ? 'Xem trước' : 'Chưa có ảnh nền';
+            $('#accCoverHint').style.visibility = draft || !img ? 'visible' : 'hidden';
+            const show = (k, on) => $$(`[data-cover="${k}"]`).forEach(b => b.classList.toggle('hidden', !on));
+            show('pick', !draft); show('del', !draft && !!state.cover); show('dl', !draft && !!state.cover);
+            show('save', draft); show('cancel', draft);
         }
         async function shrinkImage(file, max = 1400) {
             const url = URL.createObjectURL(file);
@@ -4508,12 +4540,27 @@
             if (!file) return;
             if (!file.type.startsWith('image/')) return toast('Hãy chọn một file ảnh (JPG, PNG…)');
             try {
-                state.cover = await shrinkImage(file);
-                state.coverAt = Date.now();
-                applyCover(); saveChats();
-                toast(state.server ? '🖼️ Đã cập nhật ảnh nền, đồng bộ sang các thiết bị khác của bạn' : '🖼️ Đã cập nhật ảnh nền');
+                state.coverDraft = await shrinkImage(file);
+                applyCover();
+                toast('Đây là ảnh xem trước. Bấm 💾 Lưu ảnh nền để lưu');
             } catch (err) { toast('Không đọc được ảnh này'); }
         };
+        $$('[data-cover="save"]').forEach(b => b.onclick = async () => {
+            if (!state.coverDraft) return;
+            state.cover = state.coverDraft; state.coverDraft = null; state.coverAt = Date.now();
+            applyCover(); saveChats();
+            const ok = await vaultSaveNow();
+            toast(ok ? '✅ Đã lưu ảnh nền vào tài khoản. Đăng nhập lại hay dùng máy khác vẫn còn'
+                : state.server ? '✅ Đã lưu ảnh nền trên máy này, sẽ tự lưu lên máy chủ khi kết nối lại' : '✅ Đã lưu ảnh nền trên máy này');
+        });
+        $$('[data-cover="cancel"]').forEach(b => b.onclick = () => { state.coverDraft = null; applyCover(); toast('Đã hủy, giữ ảnh nền cũ'); });
+        $$('[data-cover="dl"]').forEach(b => b.onclick = () => downloadImage(state.cover, 'anh-nen'));
+        function downloadImage(img, name) {
+            if (!img) return;
+            const a = document.createElement('a');
+            a.href = img; a.download = `${name}-${(state.user || 'lanchat').replace(/\s+/g, '-')}.jpg`;
+            document.body.appendChild(a); a.click(); a.remove();
+        }
         $$('[data-cover="del"]').forEach(b => b.onclick = () => { state.cover = null; state.coverAt = Date.now(); applyCover(); saveChats(); toast('Đã xóa ảnh nền'); });
 
 
@@ -4534,8 +4581,15 @@
             el.style.background = img ? `center / cover no-repeat url("${img}")` : colorOf(name);
         }
         function paintMyAvatars() {
-            for (const s of ['#meAvatar', '#accAvatar', '#pAvatar']) paintAvatar($(s), state.user, state.me ?? state.user);
-            $$('[data-av="del"]').forEach(b => b.classList.toggle('hidden', !avImg(state.me ?? state.user)));
+            const me = state.me ?? state.user, draft = state.avDraft;
+            for (const s of ['#meAvatar', '#accAvatar', '#pAvatar']) {
+                paintAvatar($(s), state.user, me);
+                if (draft && s !== '#meAvatar') { $(s).textContent = ''; $(s).style.background = `center / cover no-repeat url("${draft}")`; }
+                $(s).style.outline = draft && s !== '#meAvatar' ? '3px dashed var(--primary)' : '';
+            }
+            const show = (k, on) => $$(`[data-av="${k}"]`).forEach(b => b.classList.toggle('hidden', !on));
+            show('pick', !draft); show('del', !draft && !!avImg(me)); show('dl', !draft && !!avImg(me));
+            show('save', !!draft); show('cancel', !!draft);
         }
         function repaintAvatars() {
             paintMyAvatars();
@@ -4598,9 +4652,21 @@
             e.target.value = '';
             if (!file) return;
             if (!file.type.startsWith('image/')) return toast('Hãy chọn một file ảnh (JPG, PNG…)');
-            try { await setMyAvatar(await squareImage(file)); toast(state.server ? '📷 Đã đổi ảnh đại diện. Bạn bè sẽ thấy ảnh mới' : '📷 Đã đổi ảnh đại diện'); }
-            catch (err) { toast(err.message || 'Không đọc được ảnh này'); }
+            try { state.avDraft = await squareImage(file); paintMyAvatars(); toast('Đây là ảnh xem trước. Bấm 💾 Lưu ảnh đại diện để lưu'); }
+            catch (err) { toast('Không đọc được ảnh này'); }
         };
+        $$('[data-av="save"]').forEach(b => b.onclick = async () => {
+            if (!state.avDraft) return;
+            b.disabled = true;
+            try {
+                await setMyAvatar(state.avDraft);
+                state.avDraft = null; paintMyAvatars();
+                toast(state.server ? '✅ Đã lưu ảnh đại diện vào tài khoản. Bạn bè thấy ảnh mới, đăng nhập lại vẫn còn' : '✅ Đã lưu ảnh đại diện trên máy này');
+            } catch (err) { toast('Chưa lưu được ảnh (mất kết nối máy chủ?). Bấm Lưu lại sau'); }
+            b.disabled = false;
+        });
+        $$('[data-av="cancel"]').forEach(b => b.onclick = () => { state.avDraft = null; paintMyAvatars(); toast('Đã hủy, giữ ảnh đại diện cũ'); });
+        $$('[data-av="dl"]').forEach(b => b.onclick = () => downloadImage(avImg(state.me ?? state.user), 'anh-dai-dien'));
         $$('[data-av="del"]').forEach(b => b.onclick = async () => {
             try { await setMyAvatar(null); toast('Đã xóa ảnh đại diện'); } catch (err) { toast(err.message); }
         });
