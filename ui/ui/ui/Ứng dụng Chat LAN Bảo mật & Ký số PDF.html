@@ -899,7 +899,13 @@
         const $$ = s => [...document.querySelectorAll(s)];
         const enc = new TextEncoder();
         const sleep = ms => new Promise(r => setTimeout(r, ms));
-        const b64 = buf => btoa(String.fromCharCode(...new Uint8Array(buf)));
+        // Chia nhỏ khi đổi sang base64: dữ liệu lớn (ảnh) mà truyền một lần thì trình duyệt báo "Maximum call stack size exceeded"
+        const b64 = buf => {
+            const u = new Uint8Array(buf);
+            let s = '';
+            for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000));
+            return btoa(s);
+        };
         const hex = buf => [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
         const sha256 = async s => hex(await crypto.subtle.digest('SHA-256', typeof s === 'string' ? enc.encode(s) : s));
         const nowTime = () => new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' });
@@ -4573,14 +4579,47 @@
         function looksLikeImage(file) {
             return file.type.startsWith('image/') || /\.(jpe?g|jfif|pjpeg|pjp|png|gif|webp|bmp|avif|heic|heif|tiff?|ico|svg)$/i.test(file.name) || !file.type;
         }
+        const isHeic = file => /\.(heic|heif)$/i.test(file.name) || /heic|heif/i.test(file.type);
+        let heicLib = null;
+        function loadHeicLib() {
+            heicLib ||= new Promise((ok, bad) => {
+                const s = document.createElement('script');
+                s.src = 'https://cdnjs.cloudflare.com/ajax/libs/heic2any/0.0.4/heic2any.min.js';
+                s.onload = () => window.heic2any ? ok(window.heic2any) : bad(new Error('no heic2any'));
+                s.onerror = () => { heicLib = null; bad(new Error('Không tải được bộ chuyển ảnh HEIC (kiểm tra mạng)')); };
+                document.head.appendChild(s);
+            });
+            return heicLib;
+        }
+        async function decodeImage(blob, url) {
+            // Ảnh lớn (điện thoại 12–48 MP): giải mã kèm thu nhỏ, đỡ tốn bộ nhớ, tránh lỗi trên iPhone
+            if (window.createImageBitmap) {
+                try {
+                    const b = await createImageBitmap(blob);
+                    if (Math.max(b.width, b.height) <= 4000) return b;
+                    const k = 2000 / Math.max(b.width, b.height), w = Math.round(b.width * k), ht = Math.round(b.height * k);
+                    b.close?.();
+                    return await createImageBitmap(blob, { resizeWidth: w, resizeHeight: ht, resizeQuality: 'high' });
+                } catch (e) { }
+            }
+            const u = url || URL.createObjectURL(blob);
+            try { return await new Promise((ok, bad) => { const i = new Image(); i.onload = () => ok(i); i.onerror = bad; i.src = u; }); }
+            finally { if (!url) URL.revokeObjectURL(u); }
+        }
         async function loadImageFile(file, url) {
-            try {
-                return await new Promise((ok, bad) => { const i = new Image(); i.onload = () => ok(i); i.onerror = bad; i.src = url; });
-            } catch (e) {
-                if (window.createImageBitmap) { try { return await createImageBitmap(file); } catch (e2) { } }
-                throw new Error(/\.(heic|heif)$/i.test(file.name) || /heic|heif/i.test(file.type)
-                    ? 'Trình duyệt này chưa đọc được ảnh iPhone (HEIC). Trên iPhone: Cài đặt → Camera → Định dạng → Tương thích nhất, hoặc chụp màn hình ảnh rồi chọn lại'
-                    : 'Không đọc được ảnh này. Hãy thử ảnh JPG hoặc PNG khác');
+            try { return await decodeImage(file, url); }
+            catch (e) {
+                if (isHeic(file) || !file.type) {
+                    toast('⏳ Đang chuyển ảnh iPhone (HEIC) sang JPG…');
+                    try {
+                        const conv = await (await loadHeicLib())({ blob: file, toType: 'image/jpeg', quality: .9 });
+                        return await decodeImage(Array.isArray(conv) ? conv[0] : conv);
+                    } catch (e2) {
+                        if (isHeic(file)) throw new Error(/mạng/.test(e2.message) ? e2.message
+                            : 'Không chuyển được ảnh HEIC này. Trên iPhone: Cài đặt → Camera → Định dạng → Tương thích nhất, rồi chọn lại ảnh');
+                    }
+                }
+                throw new Error('Không đọc được ảnh này. Hãy thử ảnh JPG hoặc PNG khác');
             }
         }
         async function shrinkImage(file, max = 1400) {
