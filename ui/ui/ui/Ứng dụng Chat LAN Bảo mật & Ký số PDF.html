@@ -347,6 +347,9 @@
         .hero-card.has-cover { background-size: cover; background-position: center; color: #fff; min-height: 180px; text-shadow: 0 1px 3px rgba(0,0,0,.6); }
         .hero-card.has-cover .muted { color: rgba(255,255,255,.88); }
         .cover-btns { display: flex; gap: .4rem; flex-wrap: wrap; }
+        .acc-cover { height: 150px; display: flex; align-items: flex-end; justify-content: space-between; gap: .5rem; padding: .7rem; flex-wrap: wrap;
+            background: linear-gradient(120deg, var(--primary-soft), transparent 70%), var(--panel); background-size: cover; background-position: center; border-bottom: 1px solid var(--border); }
+        .acc-cover.has-cover #accCoverHint { visibility: hidden; }
 
         .hero-card h2 { font-size: 1.35rem; line-height: 1.3; }
         .hero-card .grow { flex: 1; min-width: 220px; }
@@ -540,8 +543,8 @@
                             <span class="chip" id="pSigChip"></span>
                         </div>
                         <div class="cover-btns">
-                            <button class="btn sm" id="coverBtn" type="button">🖼️ Tải ảnh nền</button>
-                            <button class="btn sm hidden" id="coverDel" type="button">Xóa ảnh nền</button>
+                            <button class="btn sm" id="coverBtn" type="button" data-cover="pick">🖼️ Tải ảnh nền</button>
+                            <button class="btn sm hidden" id="coverDel" type="button" data-cover="del">Xóa ảnh nền</button>
                             <input type="file" id="coverFile" accept="image/*" hidden>
                         </div>
                     </div>
@@ -772,6 +775,13 @@
                 <div class="acc-grid">
                     <div class="card">
                         <div class="card-h"><h3>Hồ sơ</h3><button class="btn sm danger" id="logoutBtn">Đăng xuất</button></div>
+                        <div class="acc-cover" id="accCover">
+                            <span class="muted" id="accCoverHint">Chưa có ảnh nền</span>
+                            <div class="cover-btns">
+                                <button class="btn sm" type="button" data-cover="pick">🖼️ Tải ảnh nền</button>
+                                <button class="btn sm hidden" type="button" data-cover="del">Xóa ảnh nền</button>
+                            </div>
+                        </div>
                         <div class="card-b">
                             <div class="profile">
                                 <div class="avatar" id="accAvatar" style="background:#2563eb"></div>
@@ -1309,7 +1319,7 @@
             if (view === 'verify' && !noDoc) renderVerify();
             if (view === 'sign' && !noDoc) { renderPage(); renderSignPanel(); }
             if (view === 'profile') renderProfile();
-            if (view === 'account') renderDevices();
+            if (view === 'account') { renderDevices(); applyCover(); }
             $('.view:not(.hidden)').scrollTop = 0;
         }
         $$('#nav button').forEach(b => b.onclick = () => go(b.dataset.view));
@@ -4470,7 +4480,9 @@
             const hc = $('#view-profile .hero-card');
             hc.classList.toggle('has-cover', !!state.cover);
             hc.style.backgroundImage = state.cover ? `linear-gradient(rgba(0,0,0,.25), rgba(0,0,0,.55)), url("${state.cover}")` : '';
-            $('#coverDel').classList.toggle('hidden', !state.cover);
+            $('#accCover').classList.toggle('has-cover', !!state.cover);
+            $('#accCover').style.backgroundImage = state.cover ? `url("${state.cover}")` : '';
+            $$('[data-cover="del"]').forEach(b => b.classList.toggle('hidden', !state.cover));
         }
         async function shrinkImage(file, max = 1400) {
             const url = URL.createObjectURL(file);
@@ -4484,7 +4496,7 @@
                 return cv.toDataURL('image/jpeg', .4);
             } finally { URL.revokeObjectURL(url); }
         }
-        $('#coverBtn').onclick = () => $('#coverFile').click();
+        $$('[data-cover="pick"]').forEach(b => b.onclick = () => $('#coverFile').click());
         $('#coverFile').onchange = async e => {
             const file = e.target.files[0];
             e.target.value = '';
@@ -4497,10 +4509,11 @@
                 toast(state.server ? '🖼️ Đã cập nhật ảnh nền, đồng bộ sang các thiết bị khác của bạn' : '🖼️ Đã cập nhật ảnh nền');
             } catch (err) { toast('Không đọc được ảnh này'); }
         };
-        $('#coverDel').onclick = () => { state.cover = null; state.coverAt = Date.now(); applyCover(); saveChats(); toast('Đã xóa ảnh nền'); };
+        $$('[data-cover="del"]').forEach(b => b.onclick = () => { state.cover = null; state.coverAt = Date.now(); applyCover(); saveChats(); toast('Đã xóa ảnh nền'); });
 
         function renderAccount() {
             renderDevices();
+            applyCover();
             applyLockUi();
             const today = new Date(), until = new Date(today);
             until.setFullYear(today.getFullYear() + 2);
