@@ -311,6 +311,19 @@
         .profile .avatar { width: 58px; height: 58px; font-size: 1.3rem; }
 
         /* ===== Modal & toast ===== */
+        .ed-frame { position: relative; width: 100%; overflow: hidden; border-radius: 12px; background: #0b1220; touch-action: none; cursor: grab; }
+        .ed-frame:active { cursor: grabbing; }
+        .ed-frame canvas { display: block; width: 100%; height: 100%; }
+        .ed-frame.round::after { content: ''; position: absolute; inset: 0; border-radius: 50%; box-shadow: 0 0 0 999px rgba(11,18,32,.55); pointer-events: none; }
+        .ed-tools { display: flex; gap: .5rem; align-items: center; margin-top: .7rem; flex-wrap: wrap; }
+        .ed-tools input[type=range] { flex: 1; min-width: 140px; }
+        .modal.wide { max-width: 760px; }
+        .viewer { position: fixed; inset: 0; z-index: 95; background: rgba(2,6,23,.92); display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 1rem; }
+        .viewer .vi-img { width: min(96vw, 1400px); height: min(80vh, 900px); background: center / contain no-repeat; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+        .viewer .vi-img.round { width: min(80vw, 80vh, 520px); height: min(80vw, 80vh, 520px); border-radius: 50%; background-size: cover; }
+        .viewer .vi-bar { color: #fff; display: flex; gap: .8rem; align-items: center; margin-top: .8rem; font-size: .9rem; }
+        .viewer .vi-close { position: absolute; top: calc(.8rem + env(safe-area-inset-top)); right: 1rem; }
+        .zoomable { cursor: zoom-in; }
         .modal-bg { position: fixed; inset: 0; background: rgba(2, 6, 23, .55); display: grid; place-items: center; padding: 1rem; z-index: 50; }
         .modal { background: var(--panel); border-radius: 16px; width: 100%; max-width: 420px; box-shadow: var(--shadow); max-height: 90vh; overflow: auto; }
         .modal .card-b { display: grid; gap: .2rem; }
@@ -553,6 +566,7 @@
                         <div class="cover-btns">
                             <button class="btn sm" type="button" data-av="pick">📷 Đổi ảnh đại diện</button>
                             <button class="btn sm" id="coverBtn" type="button" data-cover="pick">🖼️ Tải ảnh nền</button>
+                            <button class="btn sm hidden" type="button" data-cover="edit">✏️ Chỉnh ảnh nền</button>
                             <button class="btn sm hidden" id="coverDel" type="button" data-cover="del">Xóa ảnh nền</button>
                             <button class="btn sm primary hidden" type="button" data-av="save">💾 Lưu ảnh đại diện</button>
                                     <button class="btn sm hidden" type="button" data-av="cancel">Hủy</button>
@@ -793,6 +807,7 @@
                             <span class="muted" id="accCoverHint">Chưa có ảnh nền</span>
                             <div class="cover-btns">
                                 <button class="btn sm" type="button" data-cover="pick">🖼️ Tải ảnh nền</button>
+                                <button class="btn sm hidden" type="button" data-cover="edit">✏️ Chỉnh ảnh nền</button>
                                 <button class="btn sm hidden" type="button" data-cover="del">Xóa ảnh nền</button>
                                 <button class="btn sm primary hidden" type="button" data-cover="save">💾 Lưu ảnh nền</button>
                                 <button class="btn sm hidden" type="button" data-cover="cancel">Hủy</button>
@@ -4571,7 +4586,7 @@
             $('#accCoverHint').textContent = draft ? 'Xem trước' : 'Chưa có ảnh nền';
             $('#accCoverHint').style.visibility = draft || !img ? 'visible' : 'hidden';
             const show = (k, on) => $$(`[data-cover="${k}"]`).forEach(b => b.classList.toggle('hidden', !on));
-            show('pick', !draft); show('del', !draft && !!state.cover); show('dl', !draft && !!state.cover);
+            show('pick', !draft); show('del', !draft && !!state.cover); show('edit', !!img); show('dl', !draft && !!state.cover);
             show('save', draft); show('cancel', draft);
         }
         // Nhận mọi loại ảnh: nhiều file (ảnh tải từ Zalo/Facebook, .jfif, .webp, ảnh iPhone .heic) trình duyệt không báo loại,
@@ -4634,6 +4649,17 @@
                 throw new Error('Không đọc được ảnh này. Hãy thử ảnh JPG hoặc PNG khác');
             }
         }
+        async function shrinkToCanvas(file, max) {
+            const url = URL.createObjectURL(file);
+            try {
+                const img = await loadImageFile(file, url);
+                const k = Math.min(1, max / Math.max(img.width, img.height));
+                const cv = document.createElement('canvas');
+                cv.width = Math.round(img.width * k); cv.height = Math.round(img.height * k);
+                cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+                return cv;
+            } finally { URL.revokeObjectURL(url); }
+        }
         async function shrinkImage(file, max = 1400) {
             const url = URL.createObjectURL(file);
             try {
@@ -4646,17 +4672,132 @@
                 return cv.toDataURL('image/jpeg', .4);
             } finally { URL.revokeObjectURL(url); }
         }
+
+        // ============ Chỉnh ảnh trước khi lưu: kéo để chọn vị trí, phóng to/thu nhỏ, xoay ============
+        // Ảnh nền cắt theo tỉ lệ 3:1 (1500×500), ảnh đại diện cắt vuông (512×512, khung tròn để xem trước).
+        function editImage(source, { aspect, outW, round, title }) {
+            return new Promise(resolve => {
+                const outH = Math.round(outW / aspect);
+                modal(title, `<div class="ed-frame ${round ? 'round' : ''}" id="edFrame" style="aspect-ratio:${aspect}"><canvas id="edCv"></canvas></div>
+                    <div class="ed-tools">
+                        <span title="Thu nhỏ">➖</span><input type="range" id="edZoom" min="1" max="4" step="0.01" value="1" aria-label="Phóng to">
+                        <span title="Phóng to">➕</span>
+                        <button class="btn sm" type="button" id="edRot">↻ Xoay</button>
+                        <button class="btn sm" type="button" id="edFit">⤢ Vừa khung</button>
+                        <button class="btn sm" type="button" id="edAll">🖼 Hiện cả ảnh</button>
+                    </div>
+                    <p class="muted" style="font-size:.78rem;margin-top:.5rem">Kéo ảnh để chọn phần muốn hiện, dùng thanh trượt hoặc con lăn chuột để phóng to.</p>`,
+                    `<button class="btn" id="edCancel">Hủy</button><button class="btn primary" id="edOk">✓ Xong</button>`);
+                $('.modal').classList.add('wide');
+                const cv = $('#edCv'), frame = $('#edFrame'), ctx = cv.getContext('2d');
+                let rot = 0, zoom = 1, cx = 0, cy = 0, mode = 'cover';
+                const W = () => frame.clientWidth, H = () => frame.clientHeight;
+                const dims = () => rot % 180 ? [source.height, source.width] : [source.width, source.height];
+                const base = (w, hgt) => { const [iw, ih] = dims(); return mode === 'contain' ? Math.min(w / iw, hgt / ih) : Math.max(w / iw, hgt / ih); };
+                function clamp() {
+                    const [iw, ih] = dims(), s = base(W(), H()) * zoom;
+                    const mx = Math.max(0, (iw * s - W()) / 2), my = Math.max(0, (ih * s - H()) / 2);
+                    cx = Math.max(-mx, Math.min(mx, cx)); cy = Math.max(-my, Math.min(my, cy));
+                }
+                function draw(c2, w, hgt, k) {
+                    const s = base(w, hgt) * zoom;
+                    c2.fillStyle = '#0b1220'; c2.fillRect(0, 0, w, hgt);
+                    c2.save(); c2.translate(w / 2 + cx * k, hgt / 2 + cy * k); c2.rotate(rot * Math.PI / 180);
+                    c2.imageSmoothingQuality = 'high';
+                    c2.drawImage(source, -source.width * s / 2, -source.height * s / 2, source.width * s, source.height * s);
+                    c2.restore();
+                }
+                function paint() {
+                    const dpr = window.devicePixelRatio || 1;
+                    cv.width = Math.round(W() * dpr); cv.height = Math.round(H() * dpr);
+                    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+                    clamp(); draw(ctx, W(), H(), 1);
+                }
+                requestAnimationFrame(paint);
+                let drag = null;
+                frame.onpointerdown = e => { drag = { x: e.clientX, y: e.clientY, cx, cy }; frame.setPointerCapture(e.pointerId); };
+                frame.onpointermove = e => { if (!drag) return; cx = drag.cx + e.clientX - drag.x; cy = drag.cy + e.clientY - drag.y; paint(); };
+                frame.onpointerup = frame.onpointercancel = () => { drag = null; };
+                frame.onwheel = e => { e.preventDefault(); zoom = Math.max(1, Math.min(4, zoom * (e.deltaY < 0 ? 1.08 : 1 / 1.08))); $('#edZoom').value = zoom; paint(); };
+                $('#edZoom').oninput = e => { zoom = +e.target.value; paint(); };
+                $('#edRot').onclick = () => { rot = (rot + 90) % 360; cx = cy = 0; paint(); };
+                $('#edFit').onclick = () => { mode = 'cover'; zoom = 1; cx = cy = 0; $('#edZoom').value = 1; paint(); };
+                $('#edAll').onclick = () => { mode = 'contain'; zoom = 1; cx = cy = 0; $('#edZoom').value = 1; paint(); };
+                const done = v => { window.removeEventListener('resize', paint); closeModal(); resolve(v); };
+                window.addEventListener('resize', paint);
+                $('#edCancel').onclick = () => done(null);
+                $('.modal-bg').onclick = e => { if (e.target.closest('[data-close]')) done(null); };
+                $('#edOk').onclick = () => {
+                    const out = document.createElement('canvas');
+                    out.width = outW; out.height = outH;
+                    draw(out.getContext('2d'), outW, outH, outW / W());
+                    resolve(out); window.removeEventListener('resize', paint); closeModal();
+                };
+            });
+        }
+        function jpegUnder(canvas, limit) {
+            for (let q = .88; q > .35; q -= .08) { const d = canvas.toDataURL('image/jpeg', q); if (d.length < limit) return d; }
+            return canvas.toDataURL('image/jpeg', .35);
+        }
+        async function imageFromDataUrl(src) {
+            return await new Promise((ok, bad) => { const i = new Image(); i.onload = () => ok(i); i.onerror = bad; i.src = src; });
+        }
+        async function editCover(source) {
+            const out = await editImage(source, { aspect: 3, outW: 1500, title: '✏️ Chỉnh ảnh nền' });
+            if (!out) return toast('Đã hủy chỉnh ảnh');
+            state.coverDraft = jpegUnder(out, 350000);
+            applyCover();
+            toast('Đây là ảnh xem trước. Bấm 💾 Lưu ảnh nền để lưu');
+        }
+        async function editAvatar(source) {
+            const big = await editImage(source, { aspect: 1, outW: 512, round: true, title: '✏️ Chỉnh ảnh đại diện' });
+            if (!big) return toast('Đã hủy chỉnh ảnh');
+            const out = document.createElement('canvas');
+            out.width = out.height = 256;
+            out.getContext('2d').drawImage(big, 0, 0, 256, 256);
+            state.avDraft = jpegUnder(out, 120000);
+            paintMyAvatars();
+            toast('Đây là ảnh xem trước. Bấm 💾 Lưu ảnh đại diện để lưu');
+        }
+        $$('[data-cover="edit"]').forEach(b => b.onclick = async () => {
+            const src = state.coverDraft || state.cover;
+            if (src) editCover(await imageFromDataUrl(src));
+        });
+
+        // ============ Xem ảnh lớn: bấm vào ảnh nền hoặc ảnh đại diện ============
+        function viewImage(src, { round, title } = {}) {
+            if (!src) return;
+            const v = document.createElement('div');
+            v.className = 'viewer';
+            v.innerHTML = `<button class="btn sm vi-close" type="button" aria-label="Đóng">✕</button>
+                <div class="vi-img ${round ? 'round' : ''}"></div><div class="vi-bar">${esc(title || '')}</div>`;
+            v.querySelector('.vi-img').style.backgroundImage = `url("${src}")`;
+            const close = () => { v.remove(); document.removeEventListener('keydown', key); };
+            const key = e => { if (e.key === 'Escape') close(); };
+            v.onclick = e => { if (!e.target.closest('.vi-img') || e.target.closest('.vi-close')) close(); };
+            v.oncontextmenu = e => e.preventDefault();
+            document.addEventListener('keydown', key);
+            document.body.appendChild(v);
+        }
+        const myAvatarSrc = () => state.avDraft || avImg(state.me ?? state.user);
+        for (const s of ['#accAvatar', '#pAvatar']) {
+            $(s).title = 'Xem ảnh đại diện';
+            $(s).onclick = () => myAvatarSrc() ? viewImage(myAvatarSrc(), { round: true, title: state.user }) : $('#avatarFile').click();
+        }
+        // Bấm vào ảnh nền (không phải nút) để xem lớn
+        for (const s of ['#accCover', '#view-profile .hero-card']) $(s).addEventListener('click', e => {
+            if (e.target.closest('button, a, input, .avatar, .chip')) return;
+            const src = state.coverDraft || state.cover;
+            if (src) viewImage(src, { title: 'Ảnh nền · ' + state.user });
+        });
         $$('[data-cover="pick"]').forEach(b => b.onclick = () => $('#coverFile').click());
         $('#coverFile').onchange = async e => {
             const file = e.target.files[0];
             e.target.value = '';
             if (!file) return;
             if (!looksLikeImage(file)) return toast('Hãy chọn một file ảnh (JPG, PNG, WEBP, HEIC…)');
-            try {
-                state.coverDraft = await shrinkImage(file);
-                applyCover();
-                toast('Đây là ảnh xem trước. Bấm 💾 Lưu ảnh nền để lưu');
-            } catch (err) { toast(err.message || 'Không đọc được ảnh này'); }
+            try { await editCover(await shrinkToCanvas(file, 3000)); }
+            catch (err) { toast(err.message || 'Không đọc được ảnh này'); }
         };
         $$('[data-cover="save"]').forEach(b => b.onclick = async () => {
             if (!state.coverDraft) return;
@@ -4778,13 +4919,13 @@
         window.addEventListener('beforeunload', e => {
             if (state.avDraft || state.coverDraft) { e.preventDefault(); e.returnValue = 'Ảnh bạn vừa chọn chưa được lưu. Bấm 💾 Lưu trước khi rời trang.'; }
         });
-        for (const s of ['#accAvatar', '#pAvatar']) { $(s).style.cursor = 'pointer'; $(s).title = 'Đổi ảnh đại diện'; $(s).onclick = () => $('#avatarFile').click(); }
+        for (const s of ['#accAvatar', '#pAvatar']) $(s).style.cursor = 'pointer';
         $('#avatarFile').onchange = async e => {
             const file = e.target.files[0];
             e.target.value = '';
             if (!file) return;
             if (!looksLikeImage(file)) return toast('Hãy chọn một file ảnh (JPG, PNG, WEBP, HEIC…)');
-            try { state.avDraft = await squareImage(file); paintMyAvatars(); toast('Đây là ảnh xem trước. Bấm 💾 Lưu ảnh đại diện để lưu'); }
+            try { await editAvatar(await shrinkToCanvas(file, 2000)); }
             catch (err) { toast(err.message || 'Không đọc được ảnh này'); }
         };
         $$('[data-av="save"]').forEach(b => b.onclick = async () => {
@@ -4834,13 +4975,18 @@
                  <button class="btn" id="fpMsg">💬 Nhắn tin</button>
                  ${isFriend && state.server ? '<button class="btn" id="fpCall">📞 Gọi</button><button class="btn primary" id="fpVideo">🎥 Video</button>' : ''}`);
             const open = () => { closeModal(); go('chat'); openChat(c.id); };
+            const fav = $('.modal .fp-av');
+            if (avImg(c.id)) { fav.classList.add('zoomable'); fav.onclick = () => viewImage(avImg(c.id), { round: true, title: c.name }); }
             $('#fpMsg').onclick = open;
             if ($('#fpCall')) { $('#fpCall').onclick = () => { open(); startCall(false); }; $('#fpVideo').onclick = () => { open(); startCall(true); }; }
             if (!isFriend || !state.server) return;
             const img = await friendCover(c.id);
             const box = $('#fpCover');
             if (!box) return;
-            if (img) { box.style.backgroundImage = `url("${img}")`; box.innerHTML = ''; }
+            if (img) {
+                box.style.backgroundImage = `url("${img}")`; box.innerHTML = '';
+                box.classList.add('zoomable'); box.onclick = () => viewImage(img, { title: 'Ảnh nền · ' + c.name });
+            }
             else box.innerHTML = '<span class="muted">Người này chưa đặt ảnh nền</span>';
         }
         // Bấm vào ảnh hoặc tên của bạn bè ở bất cứ đâu để mở hồ sơ
