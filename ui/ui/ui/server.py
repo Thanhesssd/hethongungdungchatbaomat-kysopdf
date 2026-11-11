@@ -135,6 +135,8 @@ class Store:
         self.fails = {}
         self.signups = {}
         self.invites = {}  # ID tài khoản -> các lần gửi lời mời trong giờ qua
+        self.signals = {}  # ID tài khoản -> tín hiệu cuộc gọi đang chờ (offer/answer/ICE/kết thúc), không lưu xuống đĩa
+        self.sigseq = 0
         self.pairs = {}
         self.last_seen = {}
         self.recent_mids = {}  # (tài khoản, mã tin) -> seq, để không lưu trùng khi gửi lại
@@ -418,7 +420,7 @@ class Handler(BaseHTTPRequestHandler):
         routes = {"/api/register": self.handle_register, "/api/login": self.handle_login,
                   "/api/send": self.handle_send, "/api/group": self.handle_group,
                   "/api/group/add": self.handle_group_add, "/api/group/leave": self.handle_group_leave,
-                  "/api/friend": self.handle_friend, "/api/devices/logout": self.handle_device_logout, "/api/friend/scan": self.handle_friend_scan,
+                  "/api/friend": self.handle_friend, "/api/call": self.handle_call, "/api/devices/logout": self.handle_device_logout, "/api/friend/scan": self.handle_friend_scan,
                   "/api/friend/code": self.handle_friend_code, "/api/logout": self.handle_logout, "/api/ack": self.handle_ack,
                   "/api/pair/create": self.handle_pair_create, "/api/pair/claim": self.handle_pair_claim,
                   "/api/vault": self.handle_vault_put}
@@ -570,6 +572,26 @@ class Handler(BaseHTTPRequestHandler):
                 self.store.save()
         self.send_json({"ok": True})
 
+    def handle_call(self, body):
+        """Chuyển tín hiệu gọi thoại/video (WebRTC) tới bạn bè. Âm thanh, hình ảnh đi thẳng giữa hai máy, mã hóa DTLS-SRTP."""
+        uid = self.current_user()
+        if not uid:
+            return self.send_json({"error": "Phiên đăng nhập đã hết hạn"}, 401)
+        to, data = int(body["to"]), body["data"]
+        if len(json.dumps(data)) > 64 * 1024:
+            return self.send_json({"error": "Tín hiệu quá lớn"}, 400)
+        store = self.store
+        with store.cond:
+            if pair(uid, to) not in store.friends:
+                return self.send_json({"error": "Chỉ gọi được cho bạn bè"}, 403)
+            q = store.signals.setdefault(to, [])
+            store.sigseq += 1
+            q.append({"from": uid, "fromName": store.users[uid]["name"], "data": data, "at": time.time(), "n": store.sigseq})
+            del q[:-200]
+            store.cond.notify_all()
+            online = time.time() - store.last_seen.get(to, 0) < ONLINE_SECONDS
+        self.send_json({"ok": True, "online": online})
+
     def handle_devices(self):
         uid = self.current_user()
         if not uid:
@@ -702,7 +724,7 @@ class Handler(BaseHTTPRequestHandler):
         store.last_seen[uid] = time.time()
         with store.cond:
             if wait:
-                store.cond.wait_for(lambda: store.seq > since or store.rseq > rsince, timeout=20)
+                store.cond.wait_for(lambda: store.seq > since or store.rseq > rsince or store.signals.get(uid), timeout=20)
             store.last_seen[uid] = time.time()
             my_groups = [g for g in store.groups.values() if uid in g["members"]]
             group_ids = {g["id"] for g in my_groups}
@@ -715,7 +737,10 @@ class Handler(BaseHTTPRequestHandler):
             pending = {f for f, t in store.requests if t == uid} | {t for f, t in store.requests if f == uid}
             others = [i for i in store.users if i != uid and i not in friends and i not in pending]
             others.sort(key=lambda i: (-len(friends & store.friends_of(i)), store.users[i]["name"].lower()))
+            now = time.time()
+            signals = [s for s in store.signals.pop(uid, []) if now - s["at"] < 60]
             data = {"seq": store.seq, "rseq": store.rseq, "groups": my_groups, "messages": messages, "total": len(store.users),
+                    "signals": signals,
                     "vault": store.users[uid].get("vaultVer", 0),
                     "receipts": {i: store.delivered.get(i, 0) for i in people},
                     "users": [{**public_user(store, store.users[i]), "friend": i in friends} for i in people],

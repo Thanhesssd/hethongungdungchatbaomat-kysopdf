@@ -329,6 +329,25 @@
         .span-4 { grid-column: span 4; }
         .hero-card { display: flex; gap: 1.2rem; align-items: center; padding: 1.3rem 1.4rem; flex-wrap: wrap; background: linear-gradient(120deg, var(--primary-soft), transparent 60%), var(--panel); }
         .hero-card .avatar { width: 64px; height: 64px; font-size: 1.5rem; }
+        .call { position: fixed; inset: 0; z-index: 90; background: #0b1220; color: #fff; display: flex; align-items: center; justify-content: center; }
+        .call #callRemote { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; background: #0b1220; }
+        .call #callLocal { position: absolute; right: 1rem; top: 1rem; width: 28vw; max-width: 200px; aspect-ratio: 3/4; object-fit: cover; border-radius: 12px; border: 2px solid rgba(255,255,255,.4); background: #111; }
+        .call:not(.video) video { display: none; }
+        .call.video.live .call-info { top: 1rem; left: 1rem; transform: none; align-items: flex-start; }
+        .call-info { position: absolute; top: 22%; left: 50%; transform: translateX(-50%); display: flex; flex-direction: column; align-items: center; gap: .5rem; text-shadow: 0 1px 4px #000; }
+        .call-info .avatar { width: 96px; height: 96px; font-size: 2rem; }
+        .call.video.live .call-info .avatar { display: none; }
+        .call-info b { font-size: 1.4rem; }
+        .call-acts { position: absolute; bottom: calc(2rem + env(safe-area-inset-bottom)); left: 0; right: 0; display: flex; gap: 1rem; justify-content: center; }
+        .call-btn { width: 60px; height: 60px; border-radius: 50%; font-size: 1.5rem; justify-content: center; background: rgba(255,255,255,.15); color: #fff; border: 0; }
+        .call-btn.off { background: rgba(255,255,255,.45); }
+        .call-btn.danger { background: #dc2626; }
+        .call-btn.ok { background: #16a34a; }
+        .call:not(.video) #callCam, .call:not(.video) #callFlip { display: none; }
+        .hero-card.has-cover { background-size: cover; background-position: center; color: #fff; min-height: 180px; text-shadow: 0 1px 3px rgba(0,0,0,.6); }
+        .hero-card.has-cover .muted { color: rgba(255,255,255,.88); }
+        .cover-btns { display: flex; gap: .4rem; flex-wrap: wrap; }
+
         .hero-card h2 { font-size: 1.35rem; line-height: 1.3; }
         .hero-card .grow { flex: 1; min-width: 220px; }
         .chips { display: flex; gap: .4rem; flex-wrap: wrap; }
@@ -520,6 +539,11 @@
                             <span class="chip green">✓ Chứng thư X.509</span>
                             <span class="chip" id="pSigChip"></span>
                         </div>
+                        <div class="cover-btns">
+                            <button class="btn sm" id="coverBtn" type="button">🖼️ Tải ảnh nền</button>
+                            <button class="btn sm hidden" id="coverDel" type="button">Xóa ảnh nền</button>
+                            <input type="file" id="coverFile" accept="image/*" hidden>
+                        </div>
                     </div>
 
                     <!-- 1. Quản lý định danh -->
@@ -608,6 +632,8 @@
                             </div>
                             <div style="display:flex;gap:.4rem;flex-wrap:wrap">
                                 <button class="btn sm hidden" id="groupInfoBtn">👥 Thành viên</button>
+                                <button class="btn sm hidden" id="callBtn" title="Gọi thoại">📞 Gọi</button>
+                                <button class="btn sm hidden" id="videoBtn" title="Gọi video">🎥 Video</button>
                                 <button class="btn sm hidden" id="lockChatBtn" title="Khóa tin nhắn ngay">🔒 Khóa</button>
                                 <button class="btn sm" id="cipherBtn">🔍 Xem gói tin mã hóa</button>
                                 <button class="btn sm danger" id="clearChatBtn">🗑 Xóa lịch sử</button>
@@ -818,6 +844,20 @@
     <script src="jsQR.js"></script>
     <div class="req-pop" id="reqPop" aria-live="polite"></div>
     <div id="modalRoot"></div>
+
+    <!-- Cuộc gọi thoại / video -->
+    <div class="call hidden" id="callBox" role="dialog" aria-label="Cuộc gọi">
+        <video id="callRemote" autoplay playsinline></video>
+        <video id="callLocal" autoplay playsinline muted></video>
+        <div class="call-info"><div class="avatar" id="callAvatar"></div><b id="callName"></b><span id="callState"></span></div>
+        <div class="call-acts">
+            <button class="btn call-btn" id="callMic" title="Tắt/bật micro">🎙️</button>
+            <button class="btn call-btn" id="callCam" title="Tắt/bật camera">📷</button>
+            <button class="btn call-btn" id="callFlip" title="Đổi camera trước/sau">🔄</button>
+            <button class="btn call-btn danger" id="callEnd" title="Kết thúc">📵</button>
+            <button class="btn call-btn ok hidden" id="callAccept" title="Nghe máy">📞</button>
+        </div>
+    </div>
     <div class="toast" id="toast" role="status"></div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -1306,7 +1346,7 @@
             clearTimeout(saveTimer);
             saveTimer = setTimeout(async () => {
                 const data = {
-                    chats: state.chats, unread: state.unread, msgLock: state.msgLock || null,
+                    chats: state.chats, unread: state.unread, msgLock: state.msgLock || null, cover: state.cover || null, coverAt: state.coverAt || 0,
                     extraContacts: state.contacts.filter(c => c.id > 100 && !c.real && !c.group), mem: state.mem || {}, seq: state.seq || 0, blank: !!state.blank, outbox: state.outbox,
                     serverContacts: state.contacts.filter(c => c.real || c.group).map(c => ({ id: c.id, name: c.name, role: c.role, ip: c.ip, real: c.real, group: c.group, members: c.members, fp: c.fp })),
                     me: state.server ? state.me : undefined, code: state.server ? state.code : undefined,
@@ -1339,6 +1379,7 @@
                 state.chats = data.chats || {};
                 state.unread = data.unread || {}; state.mem = data.mem || {}; state.seq = data.seq || 0;
                 if (data.blank) state.blank = true;
+                if ((data.coverAt || 0) > (state.coverAt || 0)) { state.cover = data.cover; state.coverAt = data.coverAt; }
                 if (data.msgLock && (data.msgLock.at || 0) > (state.msgLock?.at || 0)) { state.msgLock = data.msgLock; state.msgLocked = !!data.msgLock.hash; }
                 state.outbox = data.outbox || [];
                 if (state.offline && !state.me && data.me) { state.me = data.me; state.code = data.code; }
@@ -1409,6 +1450,7 @@
         function openChat(id, initial) {
             if (!initial) $('#chatLayout').classList.remove('list-only');
             const found = state.contacts.find(x => x.id === id);
+            for (const b of ['#callBtn', '#videoBtn']) $(b).classList.toggle('hidden', !(found?.real && !found.group && state.server));
             $('#chatLayout').classList.toggle('no-chat', !found);
             if (!found) {
                 state.active = null;
@@ -1890,6 +1932,7 @@
         }
 
         async function applySync(d) {
+            for (const s of d.signals || []) await onSignal(s).catch(() => { });
             for (const u of d.users) {
                 const p = state.people[u.id] ||= { id: u.id };
                 p.name = u.name;
@@ -3084,7 +3127,7 @@
                 const data = {
                     mySig: state.mySig || null, sigAt: state.mySigAt || 0, history: state.history.slice(0, 200), mem: state.mem || {},
                     contacts: state.contacts.filter(c => c.local).map(({ id, name, role, ip, fp }) => ({ id, name, role, ip, fp, local: true })),
-                    msgLock: state.msgLock || null,
+                    msgLock: state.msgLock || null, cover: state.cover || null, coverAt: state.coverAt || 0,
                     saved: Date.now(),
                 };
                 try { const r = await api('vault', { env: await sealFor([state.me], JSON.stringify(data)) }); if (r.ver) state.vaultVer = r.ver; } catch (e) { }
@@ -3098,6 +3141,10 @@
                 if (env) {
                     const data = JSON.parse(await openEnvelope(env));
                     // Chữ ký: bản đổi sau cùng thắng (máy chưa có chữ ký thì nhận luôn)
+                    if ((data.coverAt || 0) > (state.coverAt || 0)) {
+                        state.cover = data.cover; state.coverAt = data.coverAt; saveChats();
+                        if (!$('#view-profile').classList.contains('hidden')) applyCover();
+                    }
                     if (data.msgLock && (data.msgLock.at || 0) > (state.msgLock?.at || 0)) {
                         const wasOn = lockOn();
                         state.msgLock = data.msgLock;
@@ -4005,6 +4052,7 @@
 
         // ============ Trang cá nhân ============
         function renderProfile() {
+            applyCover();
             const until = new Date(); until.setFullYear(until.getFullYear() + 2);
             $('#pAvatar').textContent = initials(state.user);
             $('#pAvatar').style.background = colorOf(state.user);
@@ -4254,6 +4302,202 @@
             const auto = state.msgLock.auto ?? 5;
             if (auto >= 0 && state.hiddenAt && Date.now() - state.hiddenAt >= auto * 60000) lockMessages();
         });
+
+
+        // ============ Gọi thoại và gọi video (WebRTC) ============
+        // Máy chủ chỉ chuyển tín hiệu bắt tay; âm thanh và hình ảnh đi thẳng giữa hai máy, được mã hóa DTLS-SRTP.
+        const ICE = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun.cloudflare.com:3478'] }];
+        let call = null;
+        const sendSig = (to, data) => api('call', { to, data });
+        function callUi(c, video, stateText) {
+            $('#callBox').classList.remove('hidden');
+            $('#callBox').classList.toggle('video', video);
+            $('#callBox').classList.remove('live');
+            $('#callAvatar').textContent = initials(c.name);
+            $('#callAvatar').style.background = colorOf(c.name);
+            $('#callName').textContent = c.name;
+            $('#callState').textContent = stateText;
+            $('#callAccept').classList.add('hidden');
+            $('#callMic').classList.remove('off'); $('#callCam').classList.remove('off');
+        }
+        let ringCtx = null, ringTimer = null;
+        function ring(on) {
+            clearInterval(ringTimer); ringTimer = null;
+            if (!on) return;
+            const beep = () => {
+                try {
+                    ringCtx ||= new (window.AudioContext || window.webkitAudioContext)();
+                    const o = ringCtx.createOscillator(), g = ringCtx.createGain();
+                    o.frequency.value = 480; g.gain.value = .08; o.connect(g); g.connect(ringCtx.destination);
+                    o.start(); o.stop(ringCtx.currentTime + .8);
+                } catch (e) { }
+                navigator.vibrate?.([400, 200, 400]);
+            };
+            beep(); ringTimer = setInterval(beep, 2500);
+        }
+        async function getMedia(video) {
+            try { return await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true }, video: video ? { facingMode: 'user', width: { ideal: 1280 } } : false }); }
+            catch (e) {
+                const why = !navigator.mediaDevices ? 'Trình duyệt không hỗ trợ gọi (cần mở app qua https).'
+                    : e.name === 'NotAllowedError' ? `Bạn chưa cho phép ${video ? 'camera và micro' : 'micro'}. Bấm biểu tượng 🔒 trên thanh địa chỉ để cho phép rồi gọi lại.`
+                    : e.name === 'NotFoundError' ? `Máy này không có ${video ? 'camera hoặc micro' : 'micro'}.` : 'Không mở được micro/camera: ' + e.message;
+                toast(why); throw e;
+            }
+        }
+        function newPeer(c) {
+            const pc = new RTCPeerConnection({ iceServers: ICE });
+            pc.onicecandidate = e => { if (e.candidate && call?.pc === pc) sendSig(c.id, { t: 'ice', id: call.id, cand: e.candidate.toJSON() }).catch(() => { }); };
+            pc.ontrack = e => { $('#callRemote').srcObject = e.streams[0]; };
+            pc.onconnectionstatechange = () => {
+                if (call?.pc !== pc) return;
+                if (pc.connectionState === 'connected') {
+                    call.start ||= Date.now();
+                    $('#callBox').classList.add('live');
+                    clearInterval(call.timer);
+                    call.timer = setInterval(() => {
+                        const s = Math.floor((Date.now() - call.start) / 1000);
+                        $('#callState').textContent = `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+                    }, 1000);
+                } else if (pc.connectionState === 'failed') {
+                    toast('Không kết nối được cuộc gọi. Hai mạng có thể đang chặn kết nối trực tiếp; thử cùng Wi‑Fi hoặc đổi mạng');
+                    endCall(true);
+                } else if (pc.connectionState === 'disconnected') $('#callState').textContent = 'Mạng chập chờn, đang nối lại…';
+            };
+            return pc;
+        }
+        async function startCall(video) {
+            const c = state.contacts.find(x => x.id === state.active);
+            if (!c || !c.real || c.group) return toast('Chỉ gọi được cho bạn bè trên máy chủ');
+            if (!state.server || !state.token) return toast('Cần kết nối máy chủ để gọi');
+            if (call) return toast('Bạn đang trong một cuộc gọi khác');
+            const id = crypto.randomUUID();
+            call = { id, peer: c, video, out: true, pending: [] };
+            callUi(c, video, video ? 'Đang gọi video…' : 'Đang gọi…');
+            try {
+                call.stream = await getMedia(video);
+                if (call?.id !== id) return call?.stream?.getTracks().forEach(t => t.stop());
+                $('#callLocal').srcObject = call.stream;
+                call.pc = newPeer(c);
+                call.stream.getTracks().forEach(t => call.pc.addTrack(t, call.stream));
+                const offer = await call.pc.createOffer();
+                await call.pc.setLocalDescription(offer);
+                const r = await sendSig(c.id, { t: 'offer', id, video, sdp: offer.sdp });
+                if (!r.online && call) $('#callState').textContent = 'Đang gọi… (người này có thể đang không mở app)';
+                call.noAnswer = setTimeout(() => { if (call?.id === id && !call.start) { toast(`${c.name} không trả lời`); endCall(true); } }, 45000);
+            } catch (e) { if (call?.id === id) endCall(true); }
+        }
+        function endCall(notify) {
+            if (!call) return;
+            const c = call;
+            call = null;
+            ring(false);
+            clearTimeout(c.noAnswer); clearInterval(c.timer);
+            if (notify) sendSig(c.peer.id, { t: 'end', id: c.id }).catch(() => { });
+            c.stream?.getTracks().forEach(t => t.stop());
+            try { c.pc?.close(); } catch (e) { }
+            $('#callRemote').srcObject = null; $('#callLocal').srcObject = null;
+            $('#callBox').classList.add('hidden');
+            if (c.start) {
+                const s = Math.floor((Date.now() - c.start) / 1000);
+                toast(`${c.video ? '🎥 Cuộc gọi video' : '📞 Cuộc gọi'} với ${c.peer.name} · ${Math.floor(s / 60)} phút ${s % 60} giây`);
+            }
+        }
+        async function onSignal(s) {
+            const d = s.data || {};
+            if (d.t === 'offer') {
+                if (call) return sendSig(s.from, { t: 'busy', id: d.id }).catch(() => { });
+                const c = state.contacts.find(x => x.id === s.from) || { id: s.from, name: s.fromName };
+                call = { id: d.id, peer: c, video: !!d.video, out: false, offer: d.sdp, pending: [] };
+                callUi(c, !!d.video, d.video ? '🎥 Cuộc gọi video đến' : '📞 Cuộc gọi thoại đến');
+                $('#callAccept').classList.remove('hidden');
+                ring(true);
+                call.noAnswer = setTimeout(() => { if (call?.id === d.id && !call.start) { endCall(true); toast(`Cuộc gọi nhỡ từ ${c.name}`); } }, 45000);
+                return;
+            }
+            if (!call || d.id !== call.id) return;
+            if (d.t === 'answer') { await call.pc.setRemoteDescription({ type: 'answer', sdp: d.sdp }); for (const x of call.pending.splice(0)) await call.pc.addIceCandidate(x).catch(() => { }); $('#callState').textContent = 'Đang kết nối…'; }
+            else if (d.t === 'ice') { if (call.pc?.remoteDescription) await call.pc.addIceCandidate(d.cand).catch(() => { }); else call.pending.push(d.cand); }
+            else if (d.t === 'end') { const was = call; endCall(false); if (!was.start) toast(was.out ? `${was.peer.name} đã từ chối cuộc gọi` : `Cuộc gọi nhỡ từ ${was.peer.name}`); }
+            else if (d.t === 'busy') { toast(`${call.peer.name} đang bận cuộc gọi khác`); endCall(false); }
+        }
+        $('#callAccept').onclick = async () => {
+            if (!call || call.out) return;
+            const c = call, id = c.id;
+            ring(false);
+            $('#callAccept').classList.add('hidden');
+            $('#callState').textContent = 'Đang kết nối…';
+            try {
+                c.stream = await getMedia(c.video);
+                if (call?.id !== id) return c.stream.getTracks().forEach(t => t.stop());
+                $('#callLocal').srcObject = c.stream;
+                c.pc = newPeer(c.peer);
+                c.stream.getTracks().forEach(t => c.pc.addTrack(t, c.stream));
+                await c.pc.setRemoteDescription({ type: 'offer', sdp: c.offer });
+                for (const x of c.pending.splice(0)) await c.pc.addIceCandidate(x).catch(() => { });
+                const ans = await c.pc.createAnswer();
+                await c.pc.setLocalDescription(ans);
+                await sendSig(c.peer.id, { t: 'answer', id, sdp: ans.sdp });
+            } catch (e) { if (call?.id === id) endCall(true); }
+        };
+        $('#callEnd').onclick = () => endCall(true);
+        $('#callMic').onclick = () => {
+            const t = call?.stream?.getAudioTracks()[0]; if (!t) return;
+            t.enabled = !t.enabled; $('#callMic').classList.toggle('off', !t.enabled); $('#callMic').textContent = t.enabled ? '🎙️' : '🔇';
+        };
+        $('#callCam').onclick = () => {
+            const t = call?.stream?.getVideoTracks()[0]; if (!t) return;
+            t.enabled = !t.enabled; $('#callCam').classList.toggle('off', !t.enabled);
+        };
+        $('#callFlip').onclick = async () => {
+            if (!call?.stream || !call.pc) return;
+            const cur = call.stream.getVideoTracks()[0];
+            const facing = cur?.getSettings().facingMode === 'environment' ? 'user' : 'environment';
+            try {
+                const s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: facing } });
+                const nt = s.getVideoTracks()[0];
+                await call.pc.getSenders().find(x => x.track?.kind === 'video')?.replaceTrack(nt);
+                cur?.stop(); call.stream.removeTrack(cur); call.stream.addTrack(nt);
+                $('#callLocal').srcObject = call.stream;
+            } catch (e) { toast('Máy này chỉ có một camera'); }
+        };
+        $('#callBtn').onclick = () => startCall(false);
+        $('#videoBtn').onclick = () => startCall(true);
+        window.addEventListener('pagehide', () => endCall(true));
+
+        // ============ Ảnh nền hồ sơ ============
+        // Ảnh được thu nhỏ trên máy (tối đa 1400 px) rồi lưu vào két dữ liệu đã mã hóa, có trên mọi thiết bị của tài khoản.
+        function applyCover() {
+            const hc = $('#view-profile .hero-card');
+            hc.classList.toggle('has-cover', !!state.cover);
+            hc.style.backgroundImage = state.cover ? `linear-gradient(rgba(0,0,0,.25), rgba(0,0,0,.55)), url("${state.cover}")` : '';
+            $('#coverDel').classList.toggle('hidden', !state.cover);
+        }
+        async function shrinkImage(file, max = 1400) {
+            const url = URL.createObjectURL(file);
+            try {
+                const img = await new Promise((ok, bad) => { const i = new Image(); i.onload = () => ok(i); i.onerror = bad; i.src = url; });
+                const k = Math.min(1, max / Math.max(img.width, img.height));
+                const cv = document.createElement('canvas');
+                cv.width = Math.round(img.width * k); cv.height = Math.round(img.height * k);
+                cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+                for (let q = .82; q > .4; q -= .12) { const d = cv.toDataURL('image/jpeg', q); if (d.length < 350000) return d; }
+                return cv.toDataURL('image/jpeg', .4);
+            } finally { URL.revokeObjectURL(url); }
+        }
+        $('#coverBtn').onclick = () => $('#coverFile').click();
+        $('#coverFile').onchange = async e => {
+            const file = e.target.files[0];
+            e.target.value = '';
+            if (!file) return;
+            if (!file.type.startsWith('image/')) return toast('Hãy chọn một file ảnh (JPG, PNG…)');
+            try {
+                state.cover = await shrinkImage(file);
+                state.coverAt = Date.now();
+                applyCover(); saveChats();
+                toast(state.server ? '🖼️ Đã cập nhật ảnh nền, đồng bộ sang các thiết bị khác của bạn' : '🖼️ Đã cập nhật ảnh nền');
+            } catch (err) { toast('Không đọc được ảnh này'); }
+        };
+        $('#coverDel').onclick = () => { state.cover = null; state.coverAt = Date.now(); applyCover(); saveChats(); toast('Đã xóa ảnh nền'); };
 
         function renderAccount() {
             renderDevices();
