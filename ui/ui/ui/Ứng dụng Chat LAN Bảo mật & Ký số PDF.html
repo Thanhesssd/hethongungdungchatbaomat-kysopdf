@@ -1378,9 +1378,21 @@
             vaultSave(); // danh bạ thêm tay, ghi nhớ… cũng gửi lên két để máy khác có (tự gom, 1,5 giây/lần)
             if (!state.histKey) return;
             clearTimeout(saveTimer);
-            saveTimer = setTimeout(async () => {
+            saveTimer = setTimeout(writeChats, 250);
+        }
+        // Ghi ngay (không chờ 0,25 giây): dùng khi lưu ảnh, và khi thoát / ẩn app để không mất thay đổi vừa làm
+        async function saveChatsNow() {
+            clearTimeout(saveTimer);
+            if (state.histKey) await writeChats();
+        }
+        window.addEventListener('pagehide', () => { if (saveTimer) saveChatsNow(); });
+        document.addEventListener('visibilitychange', () => { if (document.hidden && saveTimer) saveChatsNow(); });
+        async function writeChats() {
+            saveTimer = null;
+            {
                 const data = {
                     chats: state.chats, unread: state.unread, msgLock: state.msgLock || null, cover: state.cover || null, coverAt: state.coverAt || 0,
+                    myAvatar: state.myAvatar || null, myAvatarAt: state.myAvatarAt || 0,
                     extraContacts: state.contacts.filter(c => c.id > 100 && !c.real && !c.group), mem: state.mem || {}, seq: state.seq || 0, blank: !!state.blank, outbox: state.outbox,
                     serverContacts: state.contacts.filter(c => c.real || c.group).map(c => ({ id: c.id, name: c.name, role: c.role, ip: c.ip, real: c.real, group: c.group, members: c.members, fp: c.fp })),
                     me: state.server ? state.me : undefined, code: state.server ? state.code : undefined,
@@ -1388,8 +1400,13 @@
                 };
                 const iv = crypto.getRandomValues(new Uint8Array(12));
                 const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, state.histKey, enc.encode(JSON.stringify(data)));
-                try { localStorage.setItem(histStoreKey(), JSON.stringify({ iv: b64(iv), ct: b64(ct) })); } catch (e) { }
-            }, 250);
+                const rec = JSON.stringify({ iv: b64(iv), ct: b64(ct) });
+                try { localStorage.setItem(histStoreKey(), rec); }
+                catch (e) {
+                    // Bộ nhớ trình duyệt đầy: bỏ bộ nhớ đệm ảnh (tải lại được từ máy chủ) rồi ghi lại bản lưu tài khoản
+                    try { localStorage.removeItem('lanchat-avatars'); localStorage.setItem(histStoreKey(), rec); } catch (e2) { }
+                }
+            }
         }
 
         async function loadChats() {
@@ -1414,6 +1431,7 @@
                 state.unread = data.unread || {}; state.mem = data.mem || {}; state.seq = data.seq || 0;
                 if (data.blank) state.blank = true;
                 if ((data.coverAt || 0) > (state.coverAt || 0)) { state.cover = data.cover; state.coverAt = data.coverAt; }
+                if ((data.myAvatarAt || 0) > (state.myAvatarAt || 0)) useMyAvatar(data.myAvatar, data.myAvatarAt);
                 if (data.msgLock && (data.msgLock.at || 0) > (state.msgLock?.at || 0)) { state.msgLock = data.msgLock; state.msgLocked = !!data.msgLock.hash; }
                 state.outbox = data.outbox || [];
                 if (state.offline && !state.me && data.me) { state.me = data.me; state.code = data.code; }
@@ -1985,10 +2003,19 @@
             }
             state.friendsLoaded = true;
             noteCovers(d.users);
+            // Ảnh đại diện của mình: máy chủ cũ hơn bản trên máy thì gửi lại; máy chủ mới hơn (đổi ở máy khác) thì tải về
+            if (d.me) {
+                if ((state.myAvatarAt || 0) > (d.me.av || 0) && state.avPushed !== state.myAvatarAt) pushMyAvatar();
+                else if ((d.me.av || 0) > (state.myAvatarAt || 0) && !state.avPulling) {
+                    state.avPulling = true;
+                    api('avatar?id=' + state.me).then(r => { if ((r.at || 0) > (state.myAvatarAt || 0)) { useMyAvatar(r.img, r.at); saveChats(); repaintAvatars(); } })
+                        .catch(() => { }).finally(() => { state.avPulling = false; });
+                }
+            }
             if (d.me && state.vaultReady && (state.coverAt || 0) > (d.me.cv || 0) && !state.coverPushing) {
                 state.coverPushing = true; pushCover().finally(() => { state.coverPushing = false; });
             }
-            noteAvatars([...d.users, ...(d.incoming || []), ...(d.outgoing || []), ...(d.suggestions || []), ...(d.me ? [d.me] : [])]);
+            noteAvatars([...d.users, ...(d.incoming || []), ...(d.outgoing || []), ...(d.suggestions || [])]);
             for (const g of d.groups) {
                 const c = state.contacts.find(x => x.id === g.id);
                 if (c) { c.members = g.members; continue; }
@@ -3163,6 +3190,7 @@
                 mySig: state.mySig || null, sigAt: state.mySigAt || 0, history: state.history.slice(0, 200), mem: state.mem || {},
                 contacts: state.contacts.filter(c => c.local).map(({ id, name, role, ip, fp }) => ({ id, name, role, ip, fp, local: true })),
                 msgLock: state.msgLock || null, cover: state.cover || null, coverAt: state.coverAt || 0,
+                myAvatar: state.myAvatar || null, myAvatarAt: state.myAvatarAt || 0,
             };
         }
         // Gửi két lên máy chủ. Không đổi gì so với lần gửi trước thì bỏ qua: trước đây mỗi vòng đồng bộ đều gửi lại,
@@ -3193,6 +3221,7 @@
                 if (env) {
                     const data = JSON.parse(await openEnvelope(env));
                     // Chữ ký: bản đổi sau cùng thắng (máy chưa có chữ ký thì nhận luôn)
+                    if ((data.myAvatarAt || 0) > (state.myAvatarAt || 0)) { useMyAvatar(data.myAvatar, data.myAvatarAt); saveChats(); repaintAvatars(); }
                     if ((data.coverAt || 0) > (state.coverAt || 0)) {
                         state.cover = data.cover; state.coverAt = data.coverAt; saveChats();
                         if (!$('#view-profile').classList.contains('hidden')) applyCover();
@@ -4560,6 +4589,7 @@
             if (!state.coverDraft) return;
             state.cover = state.coverDraft; state.coverDraft = null; state.coverAt = Date.now();
             applyCover(); saveChats();
+            await saveChatsNow();
             const ok = (await vaultSaveNow()) & (await pushCover());
             toast(ok ? '✅ Đã lưu ảnh nền vào tài khoản. Đăng nhập lại hay dùng máy khác vẫn còn'
                 : state.server ? '✅ Đã lưu ảnh nền trên máy này, sẽ tự lưu lên máy chủ khi kết nối lại' : '✅ Đã lưu ảnh nền trên máy này');
@@ -4582,7 +4612,10 @@
             if (!window.__av) { try { window.__av = JSON.parse(localStorage.getItem('lanchat-avatars') || '{}'); } catch (e) { window.__av = {}; } }
             return window.__av;
         }
-        function saveAvCache() { try { localStorage.setItem('lanchat-avatars', JSON.stringify(avStore())); } catch (e) { } }
+        function saveAvCache() {
+            const keep = Object.fromEntries(Object.entries(avStore()).filter(([k]) => !k.startsWith('cv:')));
+            try { localStorage.setItem('lanchat-avatars', JSON.stringify(keep)); } catch (e) { }
+        }
         function avKey(id) { return state.server ? (loadRoutes()?.id || 'srv') + ':' + id : 'local:' + id; }
         function avImg(id) { return id != null ? avStore()[avKey(id)]?.img || null : null; }
         function paintAvatar(el, name, id) {
@@ -4593,6 +4626,7 @@
         }
         function paintMyAvatars() {
             const me = state.me ?? state.user, draft = state.avDraft;
+            if (state.myAvatarAt && avStore()[avKey(me)]?.at !== state.myAvatarAt) avStore()[avKey(me)] = { img: state.myAvatar, at: state.myAvatarAt };
             for (const s of ['#meAvatar', '#accAvatar', '#pAvatar']) {
                 paintAvatar($(s), state.user, me);
                 if (draft && s !== '#meAvatar') { $(s).textContent = ''; $(s).style.background = `center / cover no-repeat url("${draft}")`; }
@@ -4645,16 +4679,32 @@
                 return cv.toDataURL('image/jpeg', .3);
             } finally { URL.revokeObjectURL(url); }
         }
-        async function setMyAvatar(img) {
-            const me = state.me ?? state.user;
-            if (state.server && state.token) {
-                const r = await api('avatar', { img });
-                avStore()[avKey(me)] = { img, at: r.at };
-            } else {
-                avStore()[avKey(me)] = { img, at: Date.now() };
-            }
+        // Ảnh đại diện của mình được giữ ở 3 nơi: bản lưu trên máy (mã hóa theo tài khoản), két dữ liệu trên máy chủ
+        // (mã hóa) và ảnh công khai cho bạn bè. Gửi lên máy chủ lỗi thì tự gửi lại ở các vòng đồng bộ sau.
+        function useMyAvatar(img, at) {
+            state.myAvatar = img || null; state.myAvatarAt = at;
+            avStore()[avKey(state.me ?? state.user)] = { img: img || null, at };
             saveAvCache();
+        }
+        async function pushMyAvatar() {
+            if (!state.server || !state.token || !state.myAvatarAt) return false;
+            // Đang gửi (vòng đồng bộ vừa gửi cùng lúc): chờ lần đó xong; nếu lần đó là ảnh cũ hơn thì gửi tiếp ảnh mới
+            while (state.avPushing) await state.avPushing.catch(() => { });
+            if (state.avPushed === state.myAvatarAt) return true;
+            const at = state.myAvatarAt;
+            state.avPushing = api('avatar', { img: state.myAvatar || null, at });
+            try { await state.avPushing; state.avPushed = at; return true; }
+            catch (e) { return false; }
+            finally { state.avPushing = null; }
+        }
+        async function setMyAvatar(img) {
+            useMyAvatar(img, Date.now());
+            saveChats();
+            await saveChatsNow();
             repaintAvatars();
+            const okVault = await vaultSaveNow();
+            const okPub = await pushMyAvatar();
+            return { okVault, okPub };
         }
         $$('[data-av="pick"]').forEach(b => b.onclick = () => $('#avatarFile').click());
         window.addEventListener('beforeunload', e => {
@@ -4672,18 +4722,17 @@
         $$('[data-av="save"]').forEach(b => b.onclick = async () => {
             if (!state.avDraft) return;
             b.disabled = true;
-            try {
-                await setMyAvatar(state.avDraft);
-                state.avDraft = null; paintMyAvatars();
-                toast(state.server ? '✅ Đã lưu ảnh đại diện vào tài khoản. Bạn bè thấy ảnh mới, đăng nhập lại vẫn còn' : '✅ Đã lưu ảnh đại diện trên máy này');
-            } catch (err) { toast('Chưa lưu được ảnh (mất kết nối máy chủ?). Bấm Lưu lại sau'); }
+            const img = state.avDraft;
+            state.avDraft = null;
+            const r = await setMyAvatar(img);
+            paintMyAvatars();
+            toast(r.okPub ? '✅ Đã lưu ảnh đại diện vào tài khoản. Bạn bè thấy ảnh mới, đăng nhập lại vẫn còn'
+                : state.server ? '✅ Đã lưu ảnh đại diện. Chưa tới được máy chủ, app sẽ tự gửi lên khi có kết nối' : '✅ Đã lưu ảnh đại diện');
             b.disabled = false;
         });
         $$('[data-av="cancel"]').forEach(b => b.onclick = () => { state.avDraft = null; paintMyAvatars(); toast('Đã hủy, giữ ảnh đại diện cũ'); });
         $$('[data-av="dl"]').forEach(b => b.onclick = () => downloadImage(avImg(state.me ?? state.user), 'anh-dai-dien'));
-        $$('[data-av="del"]').forEach(b => b.onclick = async () => {
-            try { await setMyAvatar(null); toast('Đã xóa ảnh đại diện'); } catch (err) { toast(err.message); }
-        });
+        $$('[data-av="del"]').forEach(b => b.onclick = async () => { await setMyAvatar(null); toast('Đã xóa ảnh đại diện'); });
 
 
         // ============ Ảnh nền công khai + trang hồ sơ bạn bè ============

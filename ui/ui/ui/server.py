@@ -606,13 +606,16 @@ class Handler(BaseHTTPRequestHandler):
         if img is not None and (not isinstance(img, str) or not re.match(r"^data:image/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$", img)
                                 or len(img) > 150 * 1024):
             return self.send_json({"error": "Ảnh đại diện không hợp lệ hoặc quá lớn"}, 400)
+        at = int(body.get("at") or time.time() * 1000)
         with self.store.cond:
             user = self.store.users[uid]
+            if at <= user.get("avatarAt", 0):
+                return self.send_json({"ok": True, "at": user.get("avatarAt", 0)})
             if img:
                 user["avatar"] = img
             else:
                 user.pop("avatar", None)
-            user["avatarAt"] = int(time.time() * 1000)
+            user["avatarAt"] = at
             self.store.rseq += 1  # bạn bè đang chờ đồng bộ thấy ngay
             self.store.save()
             self.store.cond.notify_all()
