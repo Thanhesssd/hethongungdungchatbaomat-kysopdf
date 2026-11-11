@@ -16,7 +16,13 @@ URL_FILE = os.path.join(DATA_DIR, "public_url.txt")
 LOCAL_PORT = int(os.environ.get("LANCHAT_LOCAL_PORT", 8000))
 
 
+_last_url = {"v": None}
+
+
 def write_url(url):
+    if url == _last_url["v"]:
+        return
+    _last_url["v"] = url
     os.makedirs(DATA_DIR, exist_ok=True)
     with open(URL_FILE, "w", encoding="utf-8") as f:
         f.write(url)
@@ -47,6 +53,8 @@ def publish_directory(public):
         for k in ("cloud", "cloudId"):
             if old.get(k):
                 data[k] = old[k]
+        if all(old.get(k) == data.get(k) for k in ("id", "public", "lan")):
+            return print("Địa chỉ trên GitHub đã đúng, không cần cập nhật.", flush=True)
     except (OSError, ValueError):
         pass
     with open(path, "w", encoding="utf-8") as f:

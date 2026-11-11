@@ -556,10 +556,8 @@
                             <button class="btn sm hidden" id="coverDel" type="button" data-cover="del">Xóa ảnh nền</button>
                             <button class="btn sm primary hidden" type="button" data-av="save">💾 Lưu ảnh đại diện</button>
                                     <button class="btn sm hidden" type="button" data-av="cancel">Hủy</button>
-                                    <button class="btn sm hidden" type="button" data-av="dl">⬇ Tải ảnh đại diện</button>
                             <button class="btn sm primary hidden" type="button" data-cover="save">💾 Lưu ảnh nền</button>
                                 <button class="btn sm hidden" type="button" data-cover="cancel">Hủy</button>
-                                <button class="btn sm hidden" type="button" data-cover="dl">⬇ Tải ảnh nền</button>
                             <input type="file" id="coverFile" accept="image/*,.jfif,.webp,.heic,.heif,.avif" hidden>
                             <input type="file" id="avatarFile" accept="image/*,.jfif,.webp,.heic,.heif,.avif" hidden>
                         </div>
@@ -798,7 +796,6 @@
                                 <button class="btn sm hidden" type="button" data-cover="del">Xóa ảnh nền</button>
                                 <button class="btn sm primary hidden" type="button" data-cover="save">💾 Lưu ảnh nền</button>
                                 <button class="btn sm hidden" type="button" data-cover="cancel">Hủy</button>
-                                <button class="btn sm hidden" type="button" data-cover="dl">⬇ Tải về</button>
                             </div>
                         </div>
                         <div class="card-b">
@@ -810,7 +807,6 @@
                                     <button class="btn sm hidden" type="button" data-av="del">Xóa ảnh đại diện</button>
                                     <button class="btn sm primary hidden" type="button" data-av="save">💾 Lưu ảnh đại diện</button>
                                     <button class="btn sm hidden" type="button" data-av="cancel">Hủy</button>
-                                    <button class="btn sm hidden" type="button" data-av="dl">⬇ Tải về</button>
                                 </div></div>
                             </div>
                             <dl class="kv" style="margin-top:1rem">
@@ -4621,13 +4617,6 @@
                 : state.server ? '✅ Đã lưu ảnh nền trên máy này, sẽ tự lưu lên máy chủ khi kết nối lại' : '✅ Đã lưu ảnh nền trên máy này');
         });
         $$('[data-cover="cancel"]').forEach(b => b.onclick = () => { state.coverDraft = null; applyCover(); toast('Đã hủy, giữ ảnh nền cũ'); });
-        $$('[data-cover="dl"]').forEach(b => b.onclick = () => downloadImage(state.cover, 'anh-nen'));
-        function downloadImage(img, name) {
-            if (!img) return;
-            const a = document.createElement('a');
-            a.href = img; a.download = `${name}-${(state.user || 'lanchat').replace(/\s+/g, '-')}.jpg`;
-            document.body.appendChild(a); a.click(); a.remove();
-        }
         $$('[data-cover="del"]').forEach(b => b.onclick = () => { setTimeout(pushCover, 0); state.cover = null; state.coverAt = Date.now(); applyCover(); saveChats(); toast('Đã xóa ảnh nền'); });
 
 
@@ -4759,7 +4748,6 @@
             b.disabled = false;
         });
         $$('[data-av="cancel"]').forEach(b => b.onclick = () => { state.avDraft = null; paintMyAvatars(); toast('Đã hủy, giữ ảnh đại diện cũ'); });
-        $$('[data-av="dl"]').forEach(b => b.onclick = () => downloadImage(avImg(state.me ?? state.user), 'anh-dai-dien'));
         $$('[data-av="del"]').forEach(b => b.onclick = async () => { await setMyAvatar(null); toast('Đã xóa ảnh đại diện'); });
 
 
