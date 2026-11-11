@@ -672,6 +672,9 @@ class Handler(BaseHTTPRequestHandler):
             user = self.store.users.get(other)
             if not user:
                 return self.send_json({"error": "Không tìm thấy tài khoản này"}, 404)
+            s = self.store
+            if other != uid and pair(uid, other) not in s.friends and (uid, other) not in s.requests and (other, uid) not in s.requests:
+                return self.send_json({"error": "Chỉ bạn bè mới xem được ảnh đại diện"}, 403)
             self.send_json({"img": user.get("avatar"), "at": user.get("avatarAt", 0)})
 
     def handle_devices(self):
