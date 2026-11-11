@@ -275,7 +275,8 @@ def hash_password(pass_hash, salt):
 
 def public_user(store, user):
     online = time.time() - store.last_seen.get(user["id"], 0) < ONLINE_SECONDS
-    return {"id": user["id"], "name": user["name"], "pub": user["pub"], "online": online, "av": user.get("avatarAt", 0)}
+    return {"id": user["id"], "name": user["name"], "pub": user["pub"], "online": online, "av": user.get("avatarAt", 0),
+            "cv": user.get("coverAt", 0)}
 
 
 def brief_user(store, uid):
@@ -376,6 +377,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.handle_devices()
         if url.path == "/api/avatar":
             return self.handle_avatar_get(parse_qs(url.query))
+        if url.path == "/api/cover":
+            return self.handle_cover_get(parse_qs(url.query))
         self.serve_static(unquote(url.path))
 
     def handle_ca(self):
@@ -422,7 +425,7 @@ class Handler(BaseHTTPRequestHandler):
         routes = {"/api/register": self.handle_register, "/api/login": self.handle_login,
                   "/api/send": self.handle_send, "/api/group": self.handle_group,
                   "/api/group/add": self.handle_group_add, "/api/group/leave": self.handle_group_leave,
-                  "/api/friend": self.handle_friend, "/api/avatar": self.handle_avatar_put, "/api/call": self.handle_call, "/api/devices/logout": self.handle_device_logout, "/api/friend/scan": self.handle_friend_scan,
+                  "/api/friend": self.handle_friend, "/api/avatar": self.handle_avatar_put, "/api/cover": self.handle_cover_put, "/api/call": self.handle_call, "/api/devices/logout": self.handle_device_logout, "/api/friend/scan": self.handle_friend_scan,
                   "/api/friend/code": self.handle_friend_code, "/api/logout": self.handle_logout, "/api/ack": self.handle_ack,
                   "/api/pair/create": self.handle_pair_create, "/api/pair/claim": self.handle_pair_claim,
                   "/api/vault": self.handle_vault_put}
@@ -615,6 +618,45 @@ class Handler(BaseHTTPRequestHandler):
             self.store.cond.notify_all()
             self.send_json({"ok": True, "at": user["avatarAt"]})
 
+    def handle_cover_put(self, body):
+        """Ảnh nền hồ sơ: bạn bè trong danh bạ xem được. Ảnh đã thu nhỏ trên máy, giới hạn 500 KB."""
+        uid = self.current_user()
+        if not uid:
+            return self.send_json({"error": "Phiên đăng nhập đã hết hạn"}, 401)
+        img, at = body.get("img"), int(body.get("at") or time.time() * 1000)
+        if img is not None and (not isinstance(img, str) or not re.match(r"^data:image/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$", img)
+                                or len(img) > 500 * 1024):
+            return self.send_json({"error": "Ảnh nền không hợp lệ hoặc quá lớn"}, 400)
+        with self.store.cond:
+            user = self.store.users[uid]
+            if at <= user.get("coverAt", 0):  # bản cũ hơn bản đang có (máy khác vừa đổi): bỏ qua
+                return self.send_json({"ok": True, "at": user.get("coverAt", 0)})
+            if img:
+                user["cover"] = img
+            else:
+                user.pop("cover", None)
+            user["coverAt"] = at
+            self.store.rseq += 1
+            self.store.save()
+            self.store.cond.notify_all()
+            self.send_json({"ok": True, "at": at})
+
+    def handle_cover_get(self, query):
+        uid = self.current_user()
+        if not uid:
+            return self.send_json({"error": "Phiên đăng nhập đã hết hạn"}, 401)
+        try:
+            other = int(query.get("id", ["0"])[0])
+        except ValueError:
+            return self.send_json({"error": "Mã tài khoản không hợp lệ"}, 400)
+        with self.store.cond:
+            user = self.store.users.get(other)
+            if not user:
+                return self.send_json({"error": "Không tìm thấy tài khoản này"}, 404)
+            if other != uid and pair(uid, other) not in self.store.friends:
+                return self.send_json({"error": "Chỉ bạn bè mới xem được ảnh nền"}, 403)
+            self.send_json({"img": user.get("cover"), "at": user.get("coverAt", 0)})
+
     def handle_avatar_get(self, query):
         uid = self.current_user()
         if not uid:
@@ -777,7 +819,7 @@ class Handler(BaseHTTPRequestHandler):
             now = time.time()
             signals = [s for s in store.signals.pop(uid, []) if now - s["at"] < 60]
             data = {"seq": store.seq, "rseq": store.rseq, "groups": my_groups, "messages": messages, "total": len(store.users),
-                    "signals": signals, "me": {"id": uid, "av": store.users[uid].get("avatarAt", 0)},
+                    "signals": signals, "me": {"id": uid, "av": store.users[uid].get("avatarAt", 0), "cv": store.users[uid].get("coverAt", 0)},
                     "vault": store.users[uid].get("vaultVer", 0),
                     "receipts": {i: store.delivered.get(i, 0) for i in people},
                     "users": [{**public_user(store, store.users[i]), "friend": i in friends} for i in people],

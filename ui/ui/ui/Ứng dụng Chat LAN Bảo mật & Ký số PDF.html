@@ -351,6 +351,10 @@
             background: linear-gradient(120deg, var(--primary-soft), transparent 70%), var(--panel); background-size: cover; background-position: center; border-bottom: 1px solid var(--border); }
         .acc-cover.has-cover #accCoverHint { visibility: hidden; }
         .acc-cover.draft, .hero-card.draft { outline: 3px dashed var(--primary); outline-offset: -3px; }
+        .fp-cover { height: 170px; margin: -.2rem -.2rem 0; border-radius: 12px; display: grid; place-items: center; font-size: .84rem;
+            background: linear-gradient(120deg, var(--primary-soft), transparent 70%), var(--panel-2, #eef2ff); background-size: cover; background-position: center; }
+        .fp-head { display: flex; gap: .8rem; align-items: flex-end; margin-top: -34px; padding: 0 .6rem .6rem; }
+        .fp-av { width: 76px !important; height: 76px !important; font-size: 1.6rem !important; border: 4px solid var(--panel); }
 
         .hero-card h2 { font-size: 1.35rem; line-height: 1.3; }
         .hero-card .grow { flex: 1; min-width: 220px; }
@@ -1980,6 +1984,10 @@
                 Object.assign(c, { pub: p.pub, fp: p.fp, status: u.online ? 'on' : 'off' });
             }
             state.friendsLoaded = true;
+            noteCovers(d.users);
+            if (d.me && state.vaultReady && (state.coverAt || 0) > (d.me.cv || 0) && !state.coverPushing) {
+                state.coverPushing = true; pushCover().finally(() => { state.coverPushing = false; });
+            }
             noteAvatars([...d.users, ...(d.incoming || []), ...(d.outgoing || []), ...(d.suggestions || []), ...(d.me ? [d.me] : [])]);
             for (const g of d.groups) {
                 const c = state.contacts.find(x => x.id === g.id);
@@ -3572,7 +3580,7 @@
             const rows = people.filter(c => (c.name + c.ip).toLowerCase().includes(q));
             $('#contactRows').innerHTML = rows.map(c => `
                 <tr>
-                    <td><div class="person">${avatarHtml(c.name, c.id)}<div><b>${esc(c.name)}</b><br><small class="muted">${esc(c.role)}</small></div></div></td>
+                    <td><div class="person" ${c.real && !c.group ? `data-profile="${c.id}" style="cursor:pointer" title="Xem hồ sơ"` : ''}>${avatarHtml(c.name, c.id)}<div><b>${esc(c.name)}</b><br><small class="muted">${esc(c.role)}</small></div></div></td>
                     <td class="mono">${c.real ? c.ip : 'Liên hệ mẫu'}</td>
                     <td><span class="dot ${c.status}"></span> ${c.status === 'on' ? 'Online' : c.status === 'busy' ? 'Bận' : 'Offline'}</td>
                     <td class="mono muted" style="font-size:.75rem">${fmtFp(c.fp)}</td>
@@ -4549,7 +4557,7 @@
             if (!state.coverDraft) return;
             state.cover = state.coverDraft; state.coverDraft = null; state.coverAt = Date.now();
             applyCover(); saveChats();
-            const ok = await vaultSaveNow();
+            const ok = (await vaultSaveNow()) & (await pushCover());
             toast(ok ? '✅ Đã lưu ảnh nền vào tài khoản. Đăng nhập lại hay dùng máy khác vẫn còn'
                 : state.server ? '✅ Đã lưu ảnh nền trên máy này, sẽ tự lưu lên máy chủ khi kết nối lại' : '✅ Đã lưu ảnh nền trên máy này');
         });
@@ -4561,7 +4569,7 @@
             a.href = img; a.download = `${name}-${(state.user || 'lanchat').replace(/\s+/g, '-')}.jpg`;
             document.body.appendChild(a); a.click(); a.remove();
         }
-        $$('[data-cover="del"]').forEach(b => b.onclick = () => { state.cover = null; state.coverAt = Date.now(); applyCover(); saveChats(); toast('Đã xóa ảnh nền'); });
+        $$('[data-cover="del"]').forEach(b => b.onclick = () => { setTimeout(pushCover, 0); state.cover = null; state.coverAt = Date.now(); applyCover(); saveChats(); toast('Đã xóa ảnh nền'); });
 
 
         // ============ Ảnh đại diện ============
@@ -4670,6 +4678,56 @@
         $$('[data-av="del"]').forEach(b => b.onclick = async () => {
             try { await setMyAvatar(null); toast('Đã xóa ảnh đại diện'); } catch (err) { toast(err.message); }
         });
+
+
+        // ============ Ảnh nền công khai + trang hồ sơ bạn bè ============
+        // Ảnh nền lưu trên máy chủ để mọi người trong danh bạ xem được; tải về khi mở hồ sơ, lưu đệm theo số phiên bản.
+        const coverVer = {};
+        function noteCovers(list) { for (const u of list || []) if (u.cv != null) coverVer[u.id] = u.cv; }
+        async function friendCover(id) {
+            const k = 'cv:' + avKey(id), have = avStore()[k];
+            if (have && have.at >= (coverVer[id] || 0)) return have.img;
+            try { const r = await api('cover?id=' + id); avStore()[k] = { img: r.img || null, at: r.at || 0 }; saveAvCache(); return r.img || null; }
+            catch (e) { return have?.img || null; }
+        }
+        async function pushCover() {
+            if (!state.server || !state.token) return false;
+            try { await api('cover', { img: state.cover || null, at: state.coverAt || Date.now() }); return true; } catch (e) { return false; }
+        }
+        async function friendProfile(id) {
+            const c = state.contacts.find(x => x.id === id) || state.people?.[id];
+            if (!c) return;
+            const isFriend = !!(c.real && !c.group);
+            modal(esc(c.name), `<div class="fp-cover" id="fpCover"><span class="muted">${isFriend ? 'Đang tải ảnh nền…' : ''}</span></div>
+                <div class="fp-head">${avatarHtml(c.name, c.id).replace('class="avatar"', 'class="avatar fp-av"')}
+                    <div><b style="font-size:1.15rem">${esc(c.name)}</b><br>
+                    <small class="muted">${c.real ? `ID ${c.id} · ` : ''}${c.status === 'on' ? '🟢 Đang online' : 'Offline'}</small></div></div>
+                ${c.fp ? `<p class="muted" style="font-size:.76rem">Vân tay khóa: <span class="mono">${fmtFp(c.fp)}</span></p>` : ''}`,
+                `<button class="btn" data-close>Đóng</button>
+                 <button class="btn" id="fpMsg">💬 Nhắn tin</button>
+                 ${isFriend && state.server ? '<button class="btn" id="fpCall">📞 Gọi</button><button class="btn primary" id="fpVideo">🎥 Video</button>' : ''}`);
+            const open = () => { closeModal(); go('chat'); openChat(c.id); };
+            $('#fpMsg').onclick = open;
+            if ($('#fpCall')) { $('#fpCall').onclick = () => { open(); startCall(false); }; $('#fpVideo').onclick = () => { open(); startCall(true); }; }
+            if (!isFriend || !state.server) return;
+            const img = await friendCover(c.id);
+            const box = $('#fpCover');
+            if (!box) return;
+            if (img) { box.style.backgroundImage = `url("${img}")`; box.innerHTML = ''; }
+            else box.innerHTML = '<span class="muted">Người này chưa đặt ảnh nền</span>';
+        }
+        // Bấm vào ảnh hoặc tên của bạn bè ở bất cứ đâu để mở hồ sơ
+        document.addEventListener('click', e => {
+            const el = e.target.closest('[data-profile]');
+            if (!el) return;
+            e.preventDefault(); e.stopPropagation();
+            friendProfile(+el.dataset.profile);
+        }, true);
+        $('#tAvatar').style.cursor = 'pointer';
+        $('#tAvatar').title = 'Xem hồ sơ';
+        $('#tAvatar').onclick = () => { if (state.active != null) friendProfile(state.active); };
+        $('#tName').style.cursor = 'pointer';
+        $('#tName').onclick = () => { if (state.active != null) friendProfile(state.active); };
 
         function renderAccount() {
             renderDevices();
