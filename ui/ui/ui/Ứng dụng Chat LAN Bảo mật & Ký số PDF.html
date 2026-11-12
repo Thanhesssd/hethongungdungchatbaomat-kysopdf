@@ -5,6 +5,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Ứng dụng Chat LAN Bảo mật &amp; Ký số PDF</title>
+    <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
+    <link rel="icon" type="image/png" sizes="512x512" href="assets/logo-512.png">
+    <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+    <meta name="theme-color" content="#1d4ed8">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
@@ -102,7 +106,7 @@
         .steps div.done { color: var(--green); }
         .steps i { width: 18px; height: 18px; border-radius: 50%; border: 2px solid currentColor; display: grid; place-items: center; font-style: normal; font-size: .65rem; }
         .logo { display: flex; align-items: center; gap: .6rem; font-weight: 800; font-size: 1.1rem; }
-        .logo-mark { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; background: #2563eb; color: #fff; flex: none; }
+        .logo-mark { width: 34px; height: 34px; border-radius: 10px; flex: none; box-shadow: 0 4px 14px rgba(37, 99, 235, .3); }
 
         /* ===== Khung chính ===== */
         .shell { height: 100%; display: grid; grid-template-columns: 232px 1fr; }
@@ -455,7 +459,7 @@
     <!-- ===================== ĐĂNG NHẬP ===================== -->
     <section class="login" id="loginScreen">
         <div class="login-art">
-            <div class="logo"><span class="logo-mark">🔒</span>LAN Chat</div>
+            <div class="logo"><img class="logo-mark" src="assets/logo.svg" width="34" height="34" alt="">LAN Chat</div>
             <div>
                 <h1>Nhắn tin mã hóa và<br>ký số PDF trong mạng nội bộ</h1>
                 <p style="color:#94a3b8">Mỗi tài khoản có cặp khóa RSA và chứng thư số X.509 riêng.</p>
@@ -514,7 +518,7 @@
     <!-- ===================== ỨNG DỤNG ===================== -->
     <section class="shell hidden" id="appScreen">
         <aside class="side">
-            <div class="logo"><span class="logo-mark">🔒</span>LAN Chat</div>
+            <div class="logo"><img class="logo-mark" src="assets/logo.svg" width="34" height="34" alt="">LAN Chat</div>
             <nav class="nav" id="nav">
                 <button data-view="profile" class="active"><span class="ico">🏠</span>Cá nhân</button>
                 <button data-view="chat"><span class="ico">💬</span>Tin nhắn<span class="badge" id="unread">2</span></button>

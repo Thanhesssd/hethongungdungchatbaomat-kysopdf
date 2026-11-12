@@ -10,6 +10,10 @@
     <link
         href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap"
         rel="stylesheet">
+    <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
+    <link rel="icon" type="image/png" sizes="512x512" href="assets/logo-512.png">
+    <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+    <meta name="theme-color" content="#1d4ed8">
     <link rel="stylesheet" href="style.css">
 </head>
 
@@ -18,13 +22,7 @@
     <nav class="navbar" id="navbar">
         <div class="nav-container">
             <a href="#home" class="logo">
-                <span class="logo-mark">
-                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2"
-                        stroke-linecap="round" stroke-linejoin="round">
-                        <rect x="4" y="10" width="16" height="11" rx="2.5" />
-                        <path d="M8 10V7a4 4 0 0 1 8 0v3" />
-                    </svg>
-                </span>
+                <img class="logo-img" src="assets/logo.svg" width="36" height="36" alt="">
                 <span class="brand">LAN Chat</span>
             </a>
             <button class="nav-toggle" id="navToggle" aria-label="Mở menu" aria-expanded="false">
@@ -51,7 +49,8 @@
     <!-- Phần đầu trang -->
     <header id="home" class="hero">
         <div class="hero-content">
-            <span class="eyebrow">Truyền thông nội bộ · Tài liệu số · Pháp lý</span>
+            <img class="sec-icon" src="assets/icons/trang-chu.webp" width="72" height="72" alt="Trang chủ" loading="lazy">
+                <span class="eyebrow">Truyền thông nội bộ · Tài liệu số · Pháp lý</span>
             <h1>Nhắn tin mã hóa qua LAN<br>và <span class="highlight">ký số PDF</span> chuẩn quốc tế</h1>
             <p class="subtitle">LAN Chat là ứng dụng nhắn tin nội bộ và xử lý tài liệu số. Tin nhắn được mã hóa
                 end-to-end, mỗi tài khoản có khóa và chứng thư số riêng, và file PDF đã ký được Adobe Acrobat
@@ -92,6 +91,7 @@
     <section id="features" class="section">
         <div class="container">
             <div class="section-header">
+                <img class="sec-icon" src="assets/icons/tinh-nang.webp" width="72" height="72" alt="Tính năng" loading="lazy">
                 <span class="eyebrow">Tính năng</span>
                 <h2>Năm nhóm tính năng chính</h2>
                 <p>Từ tin nhắn hằng ngày đến hợp đồng cần nhiều cấp phê duyệt.</p>
@@ -170,6 +170,7 @@
     <section id="signing" class="section alt">
         <div class="container split">
             <div class="split-text">
+                <img class="sec-icon" src="assets/icons/ky-so.webp" width="72" height="72" alt="Ký số PDF" loading="lazy">
                 <span class="eyebrow">Ký số PDF</span>
                 <h2>Chữ ký có giá trị pháp lý, đặt ở đúng chỗ bạn cần</h2>
                 <p>Mỗi chữ ký có hai lớp:</p>
@@ -300,6 +301,7 @@
     <section id="security" class="section dark">
         <div class="container">
             <div class="section-header">
+                <img class="sec-icon" src="assets/icons/bao-mat.webp" width="72" height="72" alt="Bảo mật" loading="lazy">
                 <span class="eyebrow">Cơ chế bảo mật</span>
                 <h2>Cách tin nhắn và tài liệu được bảo vệ</h2>
                 <p>Ghép mã hóa bất đối xứng với mã hóa đối xứng, dùng tiêu chuẩn mật mã phổ biến.</p>
@@ -338,6 +340,7 @@
     <section id="friends" class="section alt">
         <div class="container">
             <div class="section-header">
+                <img class="sec-icon" src="assets/icons/ket-ban.webp" width="72" height="72" alt="Kết bạn" loading="lazy">
                 <span class="eyebrow">Riêng tư</span>
                 <h2>Kết bạn hai chiều và tin nhắn thật</h2>
                 <p>Mỗi tài khoản bắt đầu trống. Hai người chỉ nhắn tin được khi cả hai đồng ý kết bạn.</p>
@@ -369,6 +372,7 @@
     <section id="global" class="section">
         <div class="container">
             <div class="section-header">
+                <img class="sec-icon" src="assets/icons/toan-cau.webp" width="72" height="72" alt="Toàn cầu" loading="lazy">
                 <span class="eyebrow">Wi‑Fi · 4G · 5G</span>
                 <h2>Kết nối Toàn cầu: kết bạn và trò chuyện ở bất cứ đâu có mạng</h2>
                 <p>Địa chỉ IP thuộc về thiết bị và đổi khi đổi mạng, nên mỗi tài khoản được nhận diện bằng Địa chỉ LAN Chat cố định, không phải bằng IP.</p>
@@ -400,6 +404,7 @@
     <section id="host" class="section alt">
         <div class="container">
             <div class="section-header">
+                <img class="sec-icon" src="assets/icons/may-chu.webp" width="72" height="72" alt="Máy chủ" loading="lazy">
                 <span class="eyebrow">Máy A · Máy B</span>
                 <h2>Một máy làm máy chủ, các máy khác kết nối vào</h2>
                 <p>Trình duyệt không mở được cổng máy chủ, nên máy A chạy chương trình máy chủ <code>server.py</code> trên máy tính. Các máy còn lại chỉ cần trình duyệt.</p>

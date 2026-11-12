@@ -116,7 +116,9 @@ def _cloud_upload():
         cloud_push(10)
 LOCK_SECONDS = 60
 SESSION_SECONDS = 30 * 24 * 3600
-STATIC_TYPES = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8"}
+STATIC_TYPES = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8",
+                ".svg": "image/svg+xml", ".png": "image/png", ".webp": "image/webp"}
+ASSET_RE = re.compile(r"^assets/(icons/)?[a-z0-9-]+\.(svg|png|webp)$")  # logo và biểu tượng giao diện
 
 
 class Store:
@@ -411,7 +413,7 @@ class Handler(BaseHTTPRequestHandler):
         name = path.lstrip("/") or next(iter(glob.glob("*Chat LAN*.html", root_dir=BASE_DIR)), "index.html")
         full = os.path.join(BASE_DIR, name)
         ext = os.path.splitext(name)[1].lower()
-        if "/" in name or "\\" in name or ext not in STATIC_TYPES or not os.path.isfile(full):
+        if (("/" in name or "\\" in name) and not ASSET_RE.match(name)) or ext not in STATIC_TYPES or not os.path.isfile(full):
             return self.send_json({"error": "Không tìm thấy trang"}, 404)
         with open(full, "rb") as f:
             body = f.read()
