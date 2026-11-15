@@ -41,7 +41,13 @@ PORT = int(os.environ.get("LANCHAT_PORT", 8443))
 LOCAL_PORT = int(os.environ.get("LANCHAT_LOCAL_PORT", 8000))
 ONLINE_SECONDS = 30
 MAX_BODY = 1024 * 1024
-MAX_VAULT = 4 * 1024 * 1024  # két dữ liệu tài khoản (đã mã hóa) được lớn hơn tin nhắn thường
+MAX_VAULT = 4 * 1024 * 1024
+# Ảnh gửi trong chat: mỗi ảnh (đã mã hóa đầu cuối) là một file riêng, không nằm trong bảng tin nhắn,
+# để mỗi lần lưu tin không phải ghi lại cả kho ảnh. Trên đám mây ảnh được lưu thêm lên Supabase.
+MEDIA_DIR = os.path.join(DATA_DIR, "media")
+MEDIA_RE = re.compile(r"^[0-9a-f]{32}$")
+MAX_MEDIA_PER_HOUR = 300
+MAX_MEDIA = 8 * 1024 * 1024  # một ảnh hoặc một file PDF đã mã hóa  # két dữ liệu tài khoản (đã mã hóa) được lớn hơn tin nhắn thường
 MAX_GROUP = 50
 MAX_FAILS = 5
 MAX_SIGNUPS_PER_HOUR = 10
@@ -143,6 +149,7 @@ class Store:
         self.sigseq = 0
         self.pairs = {}
         self.last_seen = {}
+        self.media_puts = {}  # ID tài khoản -> các lần gửi ảnh trong giờ qua
         self.recent_mids = {}  # (tài khoản, mã tin) -> seq, để không lưu trùng khi gửi lại
         self.delivered = {}  # ID tài khoản -> seq tin cuối cùng máy đó đã xác nhận nhận được
         self.rseq = 0  # tăng mỗi khi có xác nhận mới, để đánh thức máy gửi đang chờ
@@ -328,7 +335,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def read_json(self):
         length = int(self.headers.get("Content-Length", 0))
-        if length > (MAX_VAULT if urlparse(self.path).path == "/api/vault" else MAX_BODY):
+        limit = {"/api/vault": MAX_VAULT, "/api/media": MAX_MEDIA}.get(urlparse(self.path).path, MAX_BODY)
+        if length > limit:
             raise ValueError("Dữ liệu quá lớn")
         return json.loads(self.rfile.read(length) or b"{}")
 
@@ -383,6 +391,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.handle_avatar_get(parse_qs(url.query))
         if url.path == "/api/cover":
             return self.handle_cover_get(parse_qs(url.query))
+        if url.path == "/api/media":
+            return self.handle_media_get(parse_qs(url.query))
         self.serve_static(unquote(url.path))
 
     def handle_ca(self):
@@ -432,7 +442,7 @@ class Handler(BaseHTTPRequestHandler):
                   "/api/friend": self.handle_friend, "/api/avatar": self.handle_avatar_put, "/api/cover": self.handle_cover_put, "/api/call": self.handle_call, "/api/devices/logout": self.handle_device_logout, "/api/friend/scan": self.handle_friend_scan,
                   "/api/friend/code": self.handle_friend_code, "/api/logout": self.handle_logout, "/api/ack": self.handle_ack,
                   "/api/pair/create": self.handle_pair_create, "/api/pair/claim": self.handle_pair_claim,
-                  "/api/vault": self.handle_vault_put}
+                  "/api/vault": self.handle_vault_put, "/api/media": self.handle_media_put}
         route = routes.get(urlparse(self.path).path)
         if not route:
             return self.send_json({"error": "Không tìm thấy"}, 404)
@@ -573,6 +583,62 @@ class Handler(BaseHTTPRequestHandler):
             self.store.save()
             ver = user["vaultVer"]
         self.send_json({"ok": True, "ver": ver})
+
+    def handle_media_put(self, body):
+        """Lưu một ảnh chat đã mã hóa cho người gửi và người nhận. Máy chủ không có khóa để xem ảnh."""
+        uid = self.current_user()
+        if not uid:
+            return self.send_json({"error": "Phiên đăng nhập đã hết hạn"}, 401)
+        env = body["env"]
+        if not isinstance(env, dict) or not isinstance(env.get("keys"), dict) or str(uid) not in env["keys"]:
+            return self.send_json({"error": "Dữ liệu không hợp lệ"}, 400)
+        now = time.time()
+        with self.store.cond:
+            recent = [t for t in self.store.media_puts.get(uid, []) if now - t < 3600]
+            if len(recent) >= MAX_MEDIA_PER_HOUR:
+                return self.send_json({"error": "Bạn đã gửi rất nhiều ảnh trong giờ qua. Hãy thử lại sau"}, 429)
+            self.store.media_puts[uid] = recent + [now]
+        mid = secrets.token_hex(16)
+        rec = {"env": env, "owner": uid, "at": int(now)}
+        os.makedirs(MEDIA_DIR, exist_ok=True)
+        with open(os.path.join(MEDIA_DIR, mid + ".json"), "w", encoding="utf-8") as f:
+            json.dump(rec, f)
+        if CLOUD and SUPABASE_URL and SUPABASE_KEY:
+            try:  # ổ đĩa đám mây bị xóa khi máy chủ ngủ: lưu luôn lên Supabase trước khi báo đã xong
+                _supabase("POST", "kv", {"key": "lanchat-media-" + mid, "value": rec,
+                                         "updated_at": datetime.datetime.now(datetime.timezone.utc).isoformat()})
+            except Exception as e:
+                log(f"Chưa lưu được ảnh lên Supabase ({e})")
+                return self.send_json({"error": "Máy chủ chưa lưu được ảnh. Hãy thử lại"}, 503)
+        self.send_json({"id": mid})
+
+    def handle_media_get(self, query):
+        uid = self.current_user()
+        if not uid:
+            return self.send_json({"error": "Phiên đăng nhập đã hết hạn"}, 401)
+        mid = query.get("id", [""])[0]
+        if not MEDIA_RE.match(mid):
+            return self.send_json({"error": "Mã ảnh không hợp lệ"}, 400)
+        path = os.path.join(MEDIA_DIR, mid + ".json")
+        rec = None
+        if os.path.exists(path):
+            with open(path, encoding="utf-8") as f:
+                rec = json.load(f)
+        elif CLOUD and SUPABASE_URL and SUPABASE_KEY:
+            try:
+                rows = _supabase("GET", f"kv?select=value&key=eq.lanchat-media-{mid}")
+                rec = rows[0]["value"] if rows else None
+            except Exception:
+                return self.send_json({"error": "Chưa tải được ảnh, hãy thử lại"}, 503)
+            if rec:
+                os.makedirs(MEDIA_DIR, exist_ok=True)
+                with open(path, "w", encoding="utf-8") as f:
+                    json.dump(rec, f)
+        if not rec:
+            return self.send_json({"error": "Không tìm thấy ảnh"}, 404)
+        if str(uid) not in rec["env"].get("keys", {}):
+            return self.send_json({"error": "Ảnh này không gửi cho bạn"}, 403)
+        self.send_json({"env": rec["env"]})
 
     def handle_logout(self, body):
         key = hashlib.sha256(self.headers.get("X-Token", "").encode()).hexdigest()

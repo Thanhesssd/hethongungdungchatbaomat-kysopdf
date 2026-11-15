@@ -192,6 +192,9 @@
         .pdf-ico { background: #dc2626; color: #fff; font-size: .65rem; font-weight: 800; padding: .5rem .4rem; border-radius: 6px; }
         .file-msg small { display: block; font-size: .74rem; color: var(--green); }
         .composer { display: flex; gap: .5rem; padding: .8rem 1rem; background: var(--panel); border-top: 1px solid var(--border); }
+        .bubble.pic { padding: 4px; background: var(--panel); border-color: var(--border); }
+        .bubble.pic img { display: block; max-width: min(260px, 100%); max-height: 320px; border-radius: 10px; cursor: zoom-in; }
+        .bubble.pic .pic-wait { display: block; padding: .5rem .7rem; color: var(--muted); font-size: .85rem; }
         .msg .who { font-size: .72rem; font-weight: 600; color: var(--primary); margin-bottom: .15rem; }
         .typing .bubble { display: flex; gap: 4px; padding: .75rem .9rem; }
         .typing .bubble span { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); animation: blink 1.2s infinite; }
@@ -697,6 +700,7 @@
                         </div>
                         <div class="msgs" id="msgs"></div>
                         <form class="composer" id="composer">
+                            <label class="btn" id="picBtn" title="Gửi ảnh (mã hóa đầu cuối, xem lại được trên mọi thiết bị)" aria-label="Gửi ảnh">🖼<input type="file" id="picInput" accept="image/*,.jfif,.webp,.heic,.heif,.avif" hidden></label>
                             <input class="input" id="msgInput" placeholder="Nhập tin nhắn, sẽ được mã hóa trước khi gửi…" autocomplete="off">
                             <button class="btn primary" type="submit">🔒 Gửi</button>
                         </form>
@@ -1623,7 +1627,11 @@
             const note = cur && (cur.local || (cur.id > 100 && !cur.real && !cur.group)) ? '<div class="demo-note">⚠ Bản minh họa không có máy chủ nên tin nhắn chỉ lưu trên máy này, chưa gửi tới người kia. Mở app qua máy chủ LAN để kết bạn và nhắn tin thật.</div>' : '';
             box.innerHTML = `<div class="e2e-banner">🔒 Tin nhắn được mã hóa end‑to‑end. Chỉ bạn và người nhận đọc được.</div>${note}` +
                 list.map((m, i) => {
-                    const content = m.file
+                    const content = m.pic
+                        ? `${m.who ? `<small class="who">${esc(m.who)}</small>` : ''}<div class="bubble pic">${picHtml(m.pic)}</div>`
+                        : m.file && m.media
+                        ? `<div class="file-msg" data-pdf="${esc(m.media)}" data-name="${esc(m.file)}" title="Bấm để mở / tải file"><span class="pdf-ico">PDF</span><div><b>${esc(m.file)}</b><small>${esc(m.note || '')} · ${picState[m.media] === 'fail' ? '⚠ chưa tải được, bấm thử lại' : '⬇ bấm để mở'}</small></div></div>`
+                        : m.file
                         ? `<div class="file-msg" data-open-sign><span class="pdf-ico">PDF</span><div><b>${esc(m.file)}</b><small>${esc(m.note)}</small></div></div>`
                         : `${m.who ? `<small class="who">${esc(m.who)}</small>` : ''}<div class="bubble">${esc(m.text)}</div>`;
                     return `<div class="msg ${m.dir}">${content}
@@ -1634,7 +1642,87 @@
                 <div class="bubble" style="opacity:.6">${esc(m.text)}</div><div class="info">⏳ Chưa gửi được, sẽ tự gửi lại khi có mạng</div></div>`).join(''));
             box.scrollTop = box.scrollHeight;
             $$('[data-open-sign]').forEach(el => el.onclick = () => go('sign'));
+            $$('[data-pic-view]', box).forEach(el => el.onclick = () => viewImage(el.src, { title: 'Ảnh' }));
+            $$('[data-pic-retry]', box).forEach(el => el.onclick = () => { delete picState[el.dataset.picRetry]; renderMsgs(); });
+            for (const m of list) if (m.pic && !picCache[m.pic] && !picState[m.pic]) loadPic(m.pic);
+            $$('[data-pdf]').forEach(el => el.onclick = () => openPdfMsg(el.dataset.pdf, el.dataset.name));
         }
+
+        // ============ Ảnh trong chat ============
+        // Ảnh được mã hóa đầu cuối như tin nhắn, lưu trên máy chủ thành mục riêng; tin nhắn chỉ chứa mã ảnh.
+        // Máy nào của người gửi/người nhận (kể cả máy mới đăng nhập) cũng tải lại và giải mã được.
+        // Ảnh đã tải được giữ (vẫn ở dạng mã hóa) trong IndexedDB của trình duyệt, không chiếm bộ nhớ lịch sử chat.
+        const IMG_TAG = '\u0001IMG:', PDF_TAG = '\u0001PDF:';
+        async function openPdfMsg(id, name) {
+            if (!picCache[id]) {
+                toast('⏳ Đang tải và giải mã file…');
+                delete picState[id];
+                await loadPic(id);
+                if (!picCache[id]) return toast('Chưa tải được file. Hãy thử lại');
+            }
+            const bin = Uint8Array.from(atob(picCache[id].split(',')[1]), ch => ch.charCodeAt(0));
+            const url = URL.createObjectURL(new Blob([bin], { type: 'application/pdf' }));
+            const a = Object.assign(document.createElement('a'), { href: url, download: name || 'TaiLieu.pdf', target: '_blank', rel: 'noopener' });
+            document.body.appendChild(a); a.click(); a.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 60000);
+        }
+        const picCache = {}, picState = {};
+        function picHtml(id) {
+            if (picCache[id]) return `<img src="${picCache[id]}" alt="Ảnh" data-pic-view>`;
+            if (picState[id] === 'fail') return `<span class="pic-wait">⚠ Chưa tải được ảnh · <a href="#" data-pic-retry="${esc(id)}" onclick="return false">Thử lại</a></span>`;
+            return '<span class="pic-wait">⏳ Đang tải ảnh…</span>';
+        }
+        function mediaStore(mode, work) {
+            return new Promise((resolve, reject) => {
+                const open = indexedDB.open('lanchat-media', 1);
+                open.onupgradeneeded = () => open.result.createObjectStore('m');
+                open.onerror = () => reject(open.error);
+                open.onsuccess = () => {
+                    const tx = open.result.transaction('m', mode);
+                    const req = work(tx.objectStore('m'));
+                    tx.oncomplete = () => { open.result.close(); resolve(req?.result); };
+                    tx.onerror = () => reject(tx.error);
+                };
+            });
+        }
+        let picRender = null;
+        async function loadPic(id) {
+            picState[id] = 'loading';
+            try {
+                let env = await mediaStore('readonly', s => s.get(id)).catch(() => null);
+                if (!env) {
+                    env = (await api('media?id=' + encodeURIComponent(id))).env;
+                    mediaStore('readwrite', s => s.put(env, id)).catch(() => { });
+                }
+                const data = await openEnvelope(env);
+                if (!/^data:(image\/|application\/pdf)/.test(data)) throw new Error('not media');
+                picCache[id] = data;
+                delete picState[id];
+            } catch (e) { picState[id] = 'fail'; }
+            clearTimeout(picRender);
+            picRender = setTimeout(renderMsgs, 50);
+        }
+        $('#picInput').onchange = async e => {
+            const file = e.target.files[0];
+            e.target.value = '';
+            if (!file) return;
+            const c = state.contacts.find(x => x.id === state.active);
+            if (!c || !(c.real || c.group)) return toast('Gửi ảnh cần đăng nhập qua máy chủ và gửi cho bạn bè hoặc nhóm');
+            if (!state.token) return toast('📶 Đang mất kết nối máy chủ. Hãy gửi ảnh khi có mạng lại');
+            if (!looksLikeImage(file)) return toast('Hãy chọn một file ảnh');
+            const btn = $('#picBtn');
+            btn.classList.add('disabled'); btn.style.pointerEvents = 'none';
+            try {
+                toast('⏳ Đang mã hóa và gửi ảnh…');
+                const data = await shrinkImage(file, 1600);
+                const ids = c.group ? c.members : [state.me, c.id];
+                const { id } = await api('media', { env: await sealFor(ids, data) });
+                picCache[id] = data;
+                await sendReal(c, IMG_TAG + id);
+            } catch (err) {
+                toast(err.status === 404 ? 'Máy chủ chưa hỗ trợ gửi ảnh. Hãy khởi động lại máy chủ bản mới' : (err.message || 'Không gửi được ảnh'));
+            } finally { btn.classList.remove('disabled'); btn.style.pointerEvents = ''; }
+        };
 
         $('#cipherBtn').onclick = () => {
             state.showCipher = !state.showCipher;
@@ -2104,8 +2192,17 @@
                 const mine = msg.from === state.me;
                 let text;
                 try { text = await openEnvelope(msg.env); } catch (e) { text = '[Không giải mã được tin nhắn này]'; }
+                const pic = text.startsWith(IMG_TAG) ? text.slice(IMG_TAG.length).replace(/[^0-9a-f]/g, '').slice(0, 32) : undefined;
+                if (pic) text = '🖼 Ảnh';
+                let pdf;
+                if (text.startsWith(PDF_TAG)) {
+                    const [id, meta] = [text.slice(PDF_TAG.length, PDF_TAG.length + 32), text.slice(PDF_TAG.length + 33)];
+                    try { pdf = { media: id.replace(/[^0-9a-f]/g, ''), ...JSON.parse(meta) }; } catch (e) { pdf = { media: id.replace(/[^0-9a-f]/g, ''), name: 'TaiLieu.pdf' }; }
+                    text = '📄 ' + String(pdf.name || 'TaiLieu.pdf').slice(0, 200);
+                }
                 await addMsg(cid, {
-                    dir: mine ? 'out' : 'in', text, cipher: msg.env.iv + '.' + msg.env.ct, ts: msg.ts,
+                    ...(pdf ? { file: String(pdf.name || 'TaiLieu.pdf').slice(0, 200), note: String(pdf.note || '').slice(0, 200), media: pdf.media } : {}),
+                    pic, dir: mine ? 'out' : 'in', text, cipher: msg.env.iv + '.' + msg.env.ct, ts: msg.ts,
                     time: new Date(msg.ts).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
                     who: msg.group && !mine ? msg.fromName : undefined, seq: msg.seq, group: !!msg.group,
                 });
@@ -3735,7 +3832,26 @@
         $('#sendPdfBtn').onclick = async () => {
             if (!doc()) { toast('Chưa có tài liệu. Hãy tải PDF lên hoặc chụp tài liệu trước'); return; }
             const n = doc().signatures.length;
-            await addMsg(state.active, { dir: 'out', file: doc().name, note: n ? `Đã ký bởi ${n} người · Toàn vẹn` : 'Chưa có chữ ký' });
+            const note = n ? `Đã ký bởi ${n} người · Toàn vẹn` : 'Chưa có chữ ký';
+            const c = state.contacts.find(x => x.id === state.active);
+            // Bạn bè / nhóm qua máy chủ: gửi chính file PDF (mã hóa đầu cuối, lưu trên máy chủ) để người nhận
+            // và mọi thiết bị của bạn mở lại được. File mẫu minh họa (không có file thật) thì chỉ gửi thông tin tài liệu.
+            if (c && (c.real || c.group) && state.token && doc().pdfUrl) {
+                try {
+                    const blob = await (await fetch(doc().pdfUrl)).blob();
+                    if (blob.size > 4 * 1024 * 1024) return toast('File PDF lớn hơn 4 MB, chưa gửi qua chat được');
+                    toast('⏳ Đang mã hóa và gửi PDF…');
+                    const data = await new Promise((ok, bad) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = bad; r.readAsDataURL(blob); });
+                    const ids = c.group ? c.members : [state.me, c.id];
+                    const { id } = await api('media', { env: await sealFor(ids, data.replace(/^data:[^;]*;/, 'data:application/pdf;')) });
+                    await sendReal(c, PDF_TAG + id + '|' + JSON.stringify({ name: doc().name, note }));
+                    toast('✅ Đã gửi PDF qua kênh mã hóa');
+                } catch (err) {
+                    toast(err.status === 404 ? 'Máy chủ chưa hỗ trợ gửi file. Hãy khởi động lại máy chủ bản mới' : (err.message || 'Không gửi được PDF'));
+                }
+                return;
+            }
+            await addMsg(state.active, { dir: 'out', file: doc().name, note });
             renderMsgs(); renderConvs();
             toast('Đã gửi PDF qua kênh mã hóa');
         };
@@ -4339,6 +4455,7 @@
                 } catch (err) { toast('Không đọc được file PDF này'); return; }
             } else toast('Không tải được trình xem PDF (cần Internet), dùng trang minh họa');
             const d = newDoc(f.name, f.name.replace(/\.pdf$/i, '').replace(/[_-]+/g, ' '), state.user, pdf);
+            d.pdfUrl = URL.createObjectURL(f); // giữ file gốc để gửi qua chat / tải về
             state.docs.unshift(d);
             state.docFilter = 'todo';
             addHistory('⬆️', 'Tải lên tài liệu mới', d.name);
