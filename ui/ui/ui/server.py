@@ -145,6 +145,7 @@ class Store:
         self.fails = {}
         self.signups = {}
         self.namechecks = {}
+        self.admin_tokens = {}
         self.invites = {}  # ID tài khoản -> các lần gửi lời mời trong giờ qua
         self.signals = {}  # ID tài khoản -> tín hiệu cuộc gọi đang chờ (offer/answer/ICE/kết thúc), không lưu xuống đĩa
         self.sigseq = 0
@@ -172,6 +173,8 @@ class Store:
             self.sessions = {k: tuple(v) for k, v in db.get("sessions", {}).items() if v[1] > time.time()}
             self.delivered = {int(k): v for k, v in db.get("delivered", {}).items()}
             self.devices = {k: v for k, v in db.get("devices", {}).items() if k in self.sessions}
+        if self.purge_expired():
+            self.save()
         if not CLOUD and not os.path.exists(SQL_PATH):
             self.save()  # chuyển dữ liệu cũ (server.json) sang SQL, giữ nguyên file cũ làm bản sao lưu
 
@@ -256,7 +259,33 @@ class Store:
         return matches[0] if len(matches) == 1 else None
 
     def friends_of(self, uid):
-        return {b if a == uid else a for a, b in self.friends if uid in (a, b)}
+        return {o for o in (b if a == uid else a for a, b in self.friends if uid in (a, b)) if self.alive(o)}
+
+    def alive(self, uid):
+        u = self.users.get(uid)
+        return bool(u) and not u.get("deleted")
+
+    def purge(self, uid):
+        """Xóa hẳn tài khoản: thông tin, bạn bè, lời mời, phiên đăng nhập. Tin đã gửi (đã mã hóa) vẫn ở lại cho người nhận."""
+        self.users.pop(uid, None)
+        self.friends = {p for p in self.friends if uid not in p}
+        self.requests = {p for p in self.requests if uid not in p}
+        for k in [k for k, (u, _) in self.sessions.items() if u == uid]:
+            self.sessions.pop(k, None)
+            self.devices.pop(k, None)
+        self.delivered.pop(uid, None)
+
+    def purge_expired(self):
+        now = time.time()
+        gone = [i for i, u in self.users.items() if u.get("deleted") and now - u["deleted"] > RESTORE_DAYS * 86400]
+        for i in gone:
+            self.purge(i)
+        return gone
+
+    def logout_all(self, uid):
+        for k in [k for k, (u, _) in self.sessions.items() if u == uid]:
+            self.sessions.pop(k, None)
+            self.devices.pop(k, None)
 
     def relation(self, uid, other):
         if pair(uid, other) in self.friends:
@@ -289,6 +318,43 @@ def name_problem(store, name):
     if any(u["name"].lower() == key or handle_of(u["name"]) == handle_of(key) for u in store.users.values()):
         return "Tài khoản này đã tồn tại (đã có người đăng ký). Xin bạn tạo tài khoản với tên khác"
     return None
+
+
+RESTORE_DAYS = 30  # tài khoản đã xóa còn phục hồi được trong 30 ngày, sau đó bị xóa hẳn
+ADMIN_PATH = os.path.join(DATA_DIR, "admin.json")
+ADMIN_SECONDS = 2 * 3600
+
+
+def edit_distance(a, b):
+    if abs(len(a) - len(b)) > 2:
+        return 3
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, 1):
+        cur = [i]
+        for j, cb in enumerate(b, 1):
+            cur.append(min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (ca != cb)))
+        prev = cur
+    return prev[-1]
+
+
+def similar_groups(users):
+    """Nhóm các tài khoản có tên giống nhau: trùng khi bỏ dấu/hoa thường, hoặc chỉ khác 1 ký tự."""
+    items = [(u["id"], handle_of(u["name"])) for u in users]
+    parent = {i: i for i, _ in items}
+
+    def root(x):
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+    for n, (a, ha) in enumerate(items):
+        for b, hb in items[n + 1:]:
+            if ha == hb or (min(len(ha), len(hb)) >= 4 and edit_distance(ha, hb) <= 1):
+                parent[root(a)] = root(b)
+    groups = {}
+    for i, _ in items:
+        groups.setdefault(root(i), []).append(i)
+    return [sorted(g) for g in groups.values() if len(g) > 1]
 
 
 def pair(a, b):
@@ -365,7 +431,7 @@ class Handler(BaseHTTPRequestHandler):
     def current_user(self):
         key = hashlib.sha256(self.headers.get("X-Token", "").encode()).hexdigest()
         session = self.store.sessions.get(key)
-        if not (session and session[1] > time.time()):
+        if not (session and session[1] > time.time()) or not self.store.alive(session[0]):
             return None
         dev = self.store.devices.get(key)
         if dev is not None:
@@ -402,6 +468,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.handle_users(parse_qs(url.query))
         if url.path == "/api/devices":
             return self.handle_devices()
+        if url.path == "/api/admin/status":
+            return self.send_json({"setup": os.path.exists(ADMIN_PATH), "local": self.is_local()})
+        if url.path == "/api/admin/users":
+            return self.handle_admin_users()
         if url.path == "/api/name-check":
             return self.handle_name_check(parse_qs(url.query))
         if url.path == "/api/avatar":
@@ -456,7 +526,9 @@ class Handler(BaseHTTPRequestHandler):
         routes = {"/api/register": self.handle_register, "/api/login": self.handle_login,
                   "/api/send": self.handle_send, "/api/group": self.handle_group,
                   "/api/group/add": self.handle_group_add, "/api/group/leave": self.handle_group_leave,
-                  "/api/friend": self.handle_friend, "/api/password": self.handle_password, "/api/avatar": self.handle_avatar_put, "/api/cover": self.handle_cover_put, "/api/call": self.handle_call, "/api/devices/logout": self.handle_device_logout, "/api/friend/scan": self.handle_friend_scan,
+                  "/api/friend": self.handle_friend, "/api/account/delete": self.handle_account_delete,
+                  "/api/account/restore": self.handle_account_restore, "/api/admin/setup": self.handle_admin_setup,
+                  "/api/admin/login": self.handle_admin_login, "/api/admin/action": self.handle_admin_action, "/api/password": self.handle_password, "/api/avatar": self.handle_avatar_put, "/api/cover": self.handle_cover_put, "/api/call": self.handle_call, "/api/devices/logout": self.handle_device_logout, "/api/friend/scan": self.handle_friend_scan,
                   "/api/friend/code": self.handle_friend_code, "/api/logout": self.handle_logout, "/api/ack": self.handle_ack,
                   "/api/pair/create": self.handle_pair_create, "/api/pair/claim": self.handle_pair_claim,
                   "/api/vault": self.handle_vault_put, "/api/media": self.handle_media_put}
@@ -499,7 +571,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json({"error": problem}, 409)
             salt = secrets.token_hex(16)
             uid = max(self.store.users, default=1000) + 1
-            user = {"id": uid, "name": name, "salt": salt, "hash": hash_password(body["passHash"], salt),
+            user = {"id": uid, "name": name, "salt": salt, "hash": hash_password(body["passHash"], salt), "created": int(time.time()),
                     "pub": body["pub"], "priv": body["priv"]}
             self.store.users[uid] = user
             self.store.bump()
@@ -531,6 +603,137 @@ class Handler(BaseHTTPRequestHandler):
             self.store.save()
         self.send_json({"ok": True, "loggedOut": len(others)})
 
+    # ---------- Người dùng tự xóa / phục hồi tài khoản ----------
+    def check_password(self, user, pass_hash):
+        return bool(user) and re.fullmatch(r"[0-9a-f]{64}", pass_hash or "") and \
+            hmac.compare_digest(user["hash"], hash_password(pass_hash, user["salt"]))
+
+    def handle_account_delete(self, body):
+        uid = self.current_user()
+        if not uid:
+            return self.send_json({"error": "Phiên đăng nhập đã hết hạn"}, 401)
+        with self.store.cond:
+            user = self.store.users[uid]
+            if not self.check_password(user, body.get("passHash")):
+                return self.send_json({"error": "Mật khẩu chưa đúng"}, 403)
+            user["deleted"] = int(time.time())
+            user.pop("deletedBy", None)
+            self.store.logout_all(uid)
+            self.store.bump()
+        self.send_json({"ok": True, "restoreDays": RESTORE_DAYS})
+
+    def handle_account_restore(self, body):
+        store = self.store
+        key = (clean_name(body.get("name", "")).lower(), self.client_ip())
+        with store.cond:
+            count, until = store.fails.get(key, (0, 0))
+            if until > time.time():
+                return self.send_json({"error": "Sai mật khẩu nhiều lần. Hãy thử lại sau"}, 429)
+            user = store.find_user(body.get("name", ""))
+            if not self.check_password(user, body.get("passHash")):
+                count += 1
+                store.fails[key] = (0, time.time() + LOCK_SECONDS) if count >= MAX_FAILS else (count, 0)
+                return self.send_json({"error": "Sai tên tài khoản hoặc mật khẩu"}, 401)
+            if not user.get("deleted"):
+                return self.send_json({"ok": True})
+            if user.get("deletedBy"):
+                return self.send_json({"error": "Tài khoản bị quản trị viên xóa. Hãy liên hệ quản trị viên để phục hồi"}, 403)
+            user.pop("deleted", None)
+            store.bump()
+        self.send_json({"ok": True})
+
+    # ---------- Quản trị: tìm tài khoản giống nhau, xóa, phục hồi ----------
+    def is_local(self):
+        """Đúng là máy chủ này (không qua đường hầm Internet hay máy khác trong mạng)."""
+        return self.client_address[0] == "127.0.0.1" and not self.headers.get("CF-Connecting-IP") and not CLOUD
+
+    def admin_ok(self):
+        tok = self.headers.get("X-Admin", "")
+        exp = self.store.admin_tokens.get(hashlib.sha256(tok.encode()).hexdigest()) if tok else None
+        return bool(exp and exp > time.time())
+
+    def handle_admin_setup(self, body):
+        if not self.is_local():
+            return self.send_json({"error": "Chỉ đặt mật khẩu quản trị được trên chính máy chủ (mở http://localhost:8000/quan-tri.html)"}, 403)
+        if os.path.exists(ADMIN_PATH):
+            return self.send_json({"error": "Đã có mật khẩu quản trị"}, 409)
+        if not re.fullmatch(r"[0-9a-f]{64}", body.get("passHash", "")):
+            return self.send_json({"error": "Mật khẩu không hợp lệ"}, 400)
+        salt = secrets.token_hex(16)
+        with open(ADMIN_PATH, "w", encoding="utf-8") as f:
+            json.dump({"salt": salt, "hash": hash_password(body["passHash"], salt)}, f)
+        self.send_json({"ok": True})
+
+    def handle_admin_login(self, body):
+        key = ("#admin", self.client_ip())
+        with self.store.cond:
+            count, until = self.store.fails.get(key, (0, 0))
+        if until > time.time():
+            return self.send_json({"error": f"Sai mật khẩu nhiều lần. Thử lại sau {int(until - time.time()) + 1} giây"}, 429)
+        try:
+            with open(ADMIN_PATH, encoding="utf-8") as f:
+                rec = json.load(f)
+        except (OSError, ValueError):
+            return self.send_json({"error": "Chưa đặt mật khẩu quản trị"}, 404)
+        if not (re.fullmatch(r"[0-9a-f]{64}", body.get("passHash", "")) and
+                hmac.compare_digest(rec["hash"], hash_password(body["passHash"], rec["salt"]))):
+            with self.store.cond:
+                self.store.fails[key] = (0, time.time() + LOCK_SECONDS * 5) if count + 1 >= MAX_FAILS else (count + 1, 0)
+            return self.send_json({"error": "Sai mật khẩu quản trị"}, 401)
+        tok = secrets.token_hex(24)
+        with self.store.cond:
+            self.store.fails.pop(key, None)
+            self.store.admin_tokens[hashlib.sha256(tok.encode()).hexdigest()] = time.time() + ADMIN_SECONDS
+        self.send_json({"token": tok})
+
+    def handle_admin_users(self):
+        if not self.admin_ok():
+            return self.send_json({"error": "Cần đăng nhập quản trị"}, 401)
+        s = self.store
+        now = time.time()
+        with s.cond:
+            s.purge_expired()
+            users = []
+            for u in s.users.values():
+                sess = [k for k, (x, exp) in s.sessions.items() if x == u["id"] and exp > now]
+                users.append({"id": u["id"], "name": u["name"], "handle": handle_of(u["name"]), "created": u.get("created", 0),
+                              "lastSeen": int(s.last_seen.get(u["id"], 0)) or max([s.devices.get(k, {}).get("last", 0) for k in sess] or [0]),
+                              "online": now - s.last_seen.get(u["id"], 0) < ONLINE_SECONDS,
+                              "deleted": u.get("deleted", 0), "deletedBy": u.get("deletedBy"),
+                              "friends": len(s.friends_of(u["id"])), "devices": len(sess),
+                              "avatar": bool(u.get("avatar")), "locked": any(k[0] == u["name"].lower() and v[1] > now for k, v in s.fails.items() if k[0] != "#admin")})
+            groups = similar_groups(list(s.users.values()))
+        users.sort(key=lambda x: x["id"])
+        self.send_json({"users": users, "similar": groups, "restoreDays": RESTORE_DAYS})
+
+    def handle_admin_action(self, body):
+        if not self.admin_ok():
+            return self.send_json({"error": "Cần đăng nhập quản trị"}, 401)
+        s = self.store
+        uid, action = int(body.get("id", 0)), body.get("action")
+        with s.cond:
+            user = s.users.get(uid)
+            if not user:
+                return self.send_json({"error": "Không tìm thấy tài khoản"}, 404)
+            if action == "delete":
+                user["deleted"] = int(time.time()); user["deletedBy"] = "admin"
+                s.logout_all(uid)
+            elif action == "restore":
+                user.pop("deleted", None); user.pop("deletedBy", None)
+            elif action == "purge":
+                if not user.get("deleted"):
+                    return self.send_json({"error": "Hãy xóa (tạm) tài khoản trước, rồi mới xóa vĩnh viễn"}, 400)
+                s.purge(uid)
+            elif action == "logout":
+                s.logout_all(uid)
+            elif action == "unlock":
+                for k in [k for k in s.fails if k[0] == user["name"].lower()]:
+                    s.fails.pop(k, None)
+            else:
+                return self.send_json({"error": "Thao tác không hợp lệ"}, 400)
+            s.bump()
+        self.send_json({"ok": True})
+
     def handle_name_check(self, query):
         """Kiểm tra tên khi đang gõ ở màn hình đăng ký. Giới hạn số lần theo địa chỉ để không dò được danh sách tên."""
         ip, now = self.client_ip(), time.time()
@@ -560,6 +763,10 @@ class Handler(BaseHTTPRequestHandler):
                                    + (f" — còn {left} lần thử" if 0 < left < MAX_FAILS else "")}, 401)
         with store.cond:
             store.fails.pop(key, None)
+        if user.get("deleted"):
+            left = max(0, int(RESTORE_DAYS - (time.time() - user["deleted"]) / 86400))
+            return self.send_json({"error": f"Tài khoản này đã bị xóa. Bạn có thể phục hồi trong {left} ngày nữa",
+                                   "deleted": True, "daysLeft": left, "byAdmin": bool(user.get("deletedBy"))}, 403)
         self.session(user)
 
     def device_name(self):
@@ -846,7 +1053,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json({"error": "Phiên đăng nhập đã hết hạn"}, 401)
         store = self.store
         with store.cond:
-            other = next((u for u in store.users.values() if u.get("code") == body["code"]), None)
+            other = next((u for u in store.users.values() if u.get("code") == body["code"] and not u.get("deleted")), None)
             if not other:
                 return self.send_json({"error": "Mã QR không đúng hoặc đã được đổi"}, 404)
             if other["id"] == uid:
@@ -894,7 +1101,8 @@ class Handler(BaseHTTPRequestHandler):
         with store.cond:
             # Tìm theo tên, hoặc theo mã số tài khoản (gõ 1001 hoặc #1001)
             num = text.lstrip("#")
-            found = [u for u in store.users.values() if u["id"] != uid and (text in u["name"].lower() or (num.isdigit() and num == str(u["id"])))]
+            found = [u for u in store.users.values() if u["id"] != uid and not u.get("deleted")
+                     and (text in u["name"].lower() or (num.isdigit() and num == str(u["id"])))]
             data = [{**brief_user(store, u["id"]), "relation": store.relation(uid, u["id"])} for u in found[:30]]
         self.send_json({"users": data})
 
@@ -905,7 +1113,7 @@ class Handler(BaseHTTPRequestHandler):
         other, action = body["id"], body["action"]
         store = self.store
         with store.cond:
-            if other == uid or other not in store.users:
+            if other == uid or not store.alive(other):
                 return self.send_json({"error": "Không tìm thấy tài khoản này"}, 404)
             if action == "request" and (uid, other) not in store.requests and not self.invite_ok(uid):
                 return self.send_json({"error": "Bạn đã gửi quá nhiều lời mời trong một giờ. Hãy thử lại sau"}, 429)
@@ -950,9 +1158,9 @@ class Handler(BaseHTTPRequestHandler):
                         and str(uid) in m["env"]["keys"]]
             friends = store.friends_of(uid)
             # Danh bạ theo tài khoản: bạn bè và người cùng nhóm (cần khóa công khai để mã hóa cho họ)
-            people = friends | {m for g in my_groups for m in g["members"] if m != uid}
+            people = friends | {m for g in my_groups for m in g["members"] if m != uid and store.alive(m)}
             pending = {f for f, t in store.requests if t == uid} | {t for f, t in store.requests if f == uid}
-            others = [i for i in store.users if i != uid and i not in friends and i not in pending]
+            others = [i for i in store.users if i != uid and i not in friends and i not in pending and store.alive(i)]
             others.sort(key=lambda i: (-len(friends & store.friends_of(i)), store.users[i]["name"].lower()))
             now = time.time()
             signals = [s for s in store.signals.pop(uid, []) if now - s["at"] < 60]
@@ -961,8 +1169,8 @@ class Handler(BaseHTTPRequestHandler):
                     "vault": store.users[uid].get("vaultVer", 0),
                     "receipts": {i: store.delivered.get(i, 0) for i in people},
                     "users": [{**public_user(store, store.users[i]), "friend": i in friends} for i in people],
-                    "incoming": [brief_user(store, f) for f, t in store.requests if t == uid],
-                    "outgoing": [brief_user(store, t) for f, t in store.requests if f == uid],
+                    "incoming": [brief_user(store, f) for f, t in store.requests if t == uid and store.alive(f)],
+                    "outgoing": [brief_user(store, t) for f, t in store.requests if f == uid and store.alive(t)],
                     "suggestions": [{**brief_user(store, i), "mutual": len(friends & store.friends_of(i))} for i in others[:8]]}
         self.send_json(data)
 

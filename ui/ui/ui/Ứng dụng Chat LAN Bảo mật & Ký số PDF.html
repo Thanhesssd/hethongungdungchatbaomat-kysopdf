@@ -883,6 +883,18 @@
                             </form>
                         </div>
                     </div>
+                    <div class="card" id="delAccCard" style="grid-column:1/-1">
+                        <div class="card-h"><h3>🗑️ Xóa tài khoản</h3></div>
+                        <div class="card-b">
+                            <p class="muted" style="font-size:.84rem">Tài khoản bị ẩn khỏi bạn bè và đăng xuất trên mọi thiết bị. Trong 30 ngày, đăng nhập lại đúng mật khẩu để phục hồi đầy đủ; sau 30 ngày tài khoản bị xóa hẳn.</p>
+                            <form id="delAccForm" style="display:grid;gap:.5rem;max-width:420px" autocomplete="off">
+                                <input class="input" id="delAccPass" type="password" autocomplete="current-password" placeholder="Mật khẩu tài khoản" required>
+                                <input class="input" id="delAccConfirm" placeholder="Gõ XOA để xác nhận" required>
+                                <div><button class="btn sm danger" type="submit">Xóa tài khoản</button></div>
+                                <p class="muted" id="delAccMsg" style="font-size:.8rem;min-height:1.1em"></p>
+                            </form>
+                        </div>
+                    </div>
                     <div class="card" id="lockCard" style="grid-column:1/-1">
                         <div class="card-h"><h3>🔒 Bảo mật tin nhắn</h3><span class="chip" id="lockChip">Chưa bật</span></div>
                         <div class="card-b">
@@ -1332,6 +1344,21 @@
                     }
                     const reason = err.name === 'OperationError' ? 'Không mở được khóa riêng. Hãy kiểm tra lại mật khẩu.' : regError(err);
                     if (err.status === 401 || err.name === 'OperationError') $('#fPass').value = '';
+                    if (err.data?.deleted) {
+                        const pass = $('#fPass').value;
+                        regResult(false, err.message, '#fPass', err.data.byAdmin
+                            ? '<p class="muted" style="font-size:.82rem">Tài khoản bị quản trị viên xóa. Hãy liên hệ quản trị viên để phục hồi.</p>'
+                            : '<button class="btn primary block" type="button" id="restoreAcc" style="margin-top:.5rem">♻️ Phục hồi tài khoản</button>');
+                        $('#restoreAcc') && ($('#restoreAcc').onclick = async () => {
+                            try {
+                                await api('account/restore', { name, passHash: await sha256(pass) });
+                                toast('♻️ Đã phục hồi tài khoản. Đang đăng nhập…');
+                                $('.login-card').classList.remove('result'); $('#regResult').classList.add('hidden');
+                                $('#fPass').value = pass; setMode('login'); $('#loginForm').requestSubmit();
+                            } catch (e2) { toast(e2.message); }
+                        });
+                        return;
+                    }
                     regResult(false, reason, /đã tồn tại|đã có tài khoản|Tên tài khoản/.test(err.message) ? '#fName' : '#fPass');
                     return;
                 }
@@ -1856,7 +1883,7 @@
             // Chỉ đo các yêu cầu nhẹ; đăng nhập/đăng ký chậm do băm mật khẩu, không phải do mạng
             if (!isPoll && /^(sync|ack|users|send|health)/.test(path)) noteLatency(performance.now() - t0);
             const d = await r.json().catch(() => ({}));
-            if (!r.ok) throw Object.assign(new Error(d.error || 'Máy chủ không phản hồi'), { status: r.status });
+            if (!r.ok) throw Object.assign(new Error(d.error || 'Máy chủ không phản hồi'), { status: r.status, data: d });
             return d;
         }
 
@@ -5312,6 +5339,21 @@
         $('#tAvatar').onclick = () => { if (state.active != null) friendProfile(state.active); };
         $('#tName').style.cursor = 'pointer';
         $('#tName').onclick = () => { if (state.active != null) friendProfile(state.active); };
+
+
+        // ============ Xóa tài khoản (phục hồi được trong 30 ngày) ============
+        $('#delAccForm').onsubmit = async e => {
+            e.preventDefault();
+            const msg = t => { $('#delAccMsg').textContent = t; };
+            if (!state.server || !state.token) return msg('Cần kết nối máy chủ để xóa tài khoản');
+            if ($('#delAccConfirm').value.trim().toUpperCase() !== 'XOA') return msg('Gõ chữ XOA vào ô xác nhận');
+            try {
+                const r = await api('account/delete', { passHash: await sha256($('#delAccPass').value) });
+                await clearSession();
+                toast(`Đã xóa tài khoản. Bạn có thể phục hồi trong ${r.restoreDays} ngày bằng cách đăng nhập lại`);
+                setTimeout(() => location.reload(), 1500);
+            } catch (err) { msg(err.message); $('#delAccPass').value = ''; }
+        };
 
         // ============ Đổi mật khẩu ============
         $('#pwForm').onsubmit = async e => {

@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quản trị LAN Chat</title>
+    <meta name="robots" content="noindex">
+    <link rel="icon" type="image/svg+xml" href="assets/logo.svg">
+    <style>
+        :root { --bg: #f1f5f9; --panel: #fff; --text: #0f172a; --muted: #64748b; --border: #e2e8f0; --primary: #2563eb; --red: #dc2626; --green: #16a34a; --amber: #d97706; }
+        @media (prefers-color-scheme: dark) { :root { --bg: #0b1220; --panel: #111a2e; --text: #e2e8f0; --muted: #94a3b8; --border: #1e293b; } }
+        * { box-sizing: border-box; }
+        body { margin: 0; font-family: Inter, 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); }
+        header { display: flex; align-items: center; gap: .7rem; padding: .9rem 1.2rem; background: var(--panel); border-bottom: 1px solid var(--border); position: sticky; top: 0; z-index: 2; }
+        header img { width: 34px; height: 34px; border-radius: 9px; }
+        header b { font-size: 1.1rem; }
+        header .sp { flex: 1; }
+        main { max-width: 1100px; margin: 0 auto; padding: 1.2rem 1rem 3rem; }
+        .card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 1.1rem 1.2rem; margin-bottom: 1rem; }
+        h2 { font-size: 1.05rem; margin: 0 0 .6rem; }
+        .muted { color: var(--muted); font-size: .85rem; }
+        input, select { font: inherit; padding: .55rem .7rem; border: 1px solid var(--border); border-radius: 9px; background: var(--bg); color: var(--text); }
+        button { font: inherit; font-size: .85rem; font-weight: 600; padding: .45rem .8rem; border-radius: 9px; border: 1px solid var(--border); background: var(--panel); color: var(--text); cursor: pointer; }
+        button.primary { background: var(--primary); color: #fff; border-color: var(--primary); }
+        button.danger { color: var(--red); border-color: color-mix(in srgb, var(--red) 40%, var(--border)); }
+        button:disabled { opacity: .5; cursor: default; }
+        .row { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
+        .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: .7rem; }
+        .stat { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: .8rem 1rem; }
+        .stat b { font-size: 1.5rem; display: block; }
+        table { width: 100%; border-collapse: collapse; font-size: .88rem; }
+        th, td { text-align: left; padding: .55rem .5rem; border-bottom: 1px solid var(--border); vertical-align: middle; }
+        th { color: var(--muted); font-weight: 600; font-size: .78rem; text-transform: uppercase; }
+        .tag { display: inline-block; font-size: .72rem; font-weight: 700; padding: .12rem .5rem; border-radius: 99px; background: var(--bg); border: 1px solid var(--border); }
+        .tag.on { color: var(--green); } .tag.del { color: var(--red); } .tag.lock { color: var(--amber); }
+        .grp { border: 1px dashed var(--amber); border-radius: 12px; padding: .6rem .8rem; margin-bottom: .6rem; }
+        .acts { display: flex; gap: .3rem; flex-wrap: wrap; }
+        .hidden { display: none !important; }
+        .tablewrap { overflow-x: auto; }
+        #msg { min-height: 1.2em; }
+        tr.deleted td { opacity: .6; }
+    </style>
+</head>
+
+<body>
+    <header><img src="assets/logo.svg" alt=""><b>Quản trị LAN Chat</b><span class="sp"></span>
+        <span class="muted" id="srvLbl"></span><button id="logoutBtn" class="hidden">Thoát quản trị</button></header>
+    <main>
+        <section class="card" id="loginCard">
+            <h2 id="loginTitle">Đăng nhập quản trị</h2>
+            <p class="muted" id="loginHint">Nhập mật khẩu quản trị của máy chủ.</p>
+            <form id="loginForm" class="row">
+                <input type="password" id="pw" placeholder="Mật khẩu quản trị" autocomplete="current-password" required>
+                <input type="password" id="pw2" class="hidden" placeholder="Nhập lại mật khẩu" autocomplete="new-password">
+                <button class="primary" type="submit" id="loginBtn">Đăng nhập</button>
+            </form>
+            <p class="muted" id="msg"></p>
+        </section>
+
+        <div id="dash" class="hidden">
+            <div class="stats" style="margin-bottom:1rem">
+                <div class="stat"><span class="muted">Tổng tài khoản</span><b id="sTotal">0</b></div>
+                <div class="stat"><span class="muted">Đang online</span><b id="sOnline">0</b></div>
+                <div class="stat"><span class="muted">Đã xóa (chờ phục hồi)</span><b id="sDeleted">0</b></div>
+                <div class="stat"><span class="muted">Nhóm tên giống nhau</span><b id="sSimilar">0</b></div>
+            </div>
+            <section class="card">
+                <h2>🔎 Tài khoản có tên giống nhau</h2>
+                <p class="muted">Trùng khi bỏ dấu / hoa thường (ví dụ "Nguyễn Văn An" và "nguyen van an"), hoặc chỉ khác một ký tự. Kiểm tra xem có ai mạo danh hoặc tạo trùng không.</p>
+                <div id="similar"></div>
+            </section>
+            <section class="card">
+                <div class="row" style="justify-content:space-between;margin-bottom:.6rem">
+                    <h2 style="margin:0">👥 Tất cả tài khoản</h2>
+                    <div class="row">
+                        <input id="q" placeholder="Tìm tên hoặc ID…">
+                        <select id="filter"><option value="all">Tất cả</option><option value="active">Đang hoạt động</option><option value="deleted">Đã xóa</option><option value="online">Đang online</option></select>
+                        <button id="reload">↻ Tải lại</button>
+                    </div>
+                </div>
+                <div class="tablewrap"><table>
+                    <thead><tr><th>ID</th><th>Tên</th><th>Trạng thái</th><th>Bạn bè</th><th>Thiết bị</th><th>Tạo lúc</th><th>Hoạt động</th><th>Thao tác</th></tr></thead>
+                    <tbody id="rows"></tbody>
+                </table></div>
+            </section>
+            <p class="muted">Quản trị viên chỉ thấy thông tin tài khoản, không đọc được tin nhắn (tin nhắn được mã hóa đầu cuối). Tài khoản bị xóa được giữ <span id="days">30</span> ngày để phục hồi, sau đó tự xóa hẳn.</p>
+        </div>
+    </main>
+    <script>
+        const $ = s => document.querySelector(s);
+        const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        const sha256 = async t => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(t)))].map(b => b.toString(16).padStart(2, '0')).join('');
+        let base = '', token = sessionStorage.getItem('lanchat-admin') || '', data = null;
+        const msg = t => { $('#msg').textContent = t; };
+
+        // Tìm máy chủ: cùng địa chỉ trang (mở từ máy chủ), hoặc địa chỉ app đã lưu (mở từ GitHub)
+        async function findServer() {
+            const tries = [''];
+            try {
+                const r = JSON.parse(localStorage.getItem('lanchat-servers') || 'null');
+                if (r?.public) tries.push(r.public.replace(/\/?$/, '/'));
+                for (const h of r?.lan || []) tries.push(`https://${h}/`);
+            } catch (e) { }
+            if (/github\.io$/.test(location.hostname)) {
+                try { const d = await (await fetch('may-chu.json?t=' + Date.now(), { cache: 'no-store' })).json(); if (d.public) tries.push(d.public.replace(/\/?$/, '/')); } catch (e) { }
+            }
+            for (const b of tries) {
+                try {
+                    const ctl = new AbortController(); setTimeout(() => ctl.abort(), 4000);
+                    const r = await fetch(b + 'api/admin/status', { signal: ctl.signal, cache: 'no-store' });
+                    if (r.ok) { base = b; return await r.json(); }
+                } catch (e) { }
+            }
+            return null;
+        }
+        async function api(path, body) {
+            const r = await fetch(base + 'api/' + path, { method: body ? 'POST' : 'GET', headers: { 'Content-Type': 'application/json', 'X-Admin': token }, body: body ? JSON.stringify(body) : undefined });
+            const d = await r.json().catch(() => ({}));
+            if (!r.ok) throw Object.assign(new Error(d.error || 'Lỗi máy chủ'), { status: r.status });
+            return d;
+        }
+        const fmt = t => t ? new Date(t * 1000).toLocaleString('vi-VN') : '—';
+        function tagsOf(u) {
+            const t = [];
+            if (u.deleted) t.push(`<span class="tag del">Đã xóa${u.deletedBy ? ' (quản trị)' : ' (tự xóa)'} · ${fmt(u.deleted)}</span>`);
+            else t.push(u.online ? '<span class="tag on">● Online</span>' : '<span class="tag">Offline</span>');
+            if (u.locked) t.push('<span class="tag lock">Tạm khóa do sai mật khẩu</span>');
+            return t.join(' ');
+        }
+        function actsOf(u) {
+            return `<div class="acts">${u.deleted
+                ? `<button data-act="restore" data-id="${u.id}">♻️ Phục hồi</button><button class="danger" data-act="purge" data-id="${u.id}">Xóa vĩnh viễn</button>`
+                : `<button class="danger" data-act="delete" data-id="${u.id}">🗑️ Xóa</button>${u.devices ? `<button data-act="logout" data-id="${u.id}">Đăng xuất mọi máy</button>` : ''}`}
+                ${u.locked ? `<button data-act="unlock" data-id="${u.id}">Mở khóa</button>` : ''}</div>`;
+        }
+        function render() {
+            const us = data.users, byId = Object.fromEntries(us.map(u => [u.id, u]));
+            $('#sTotal').textContent = us.filter(u => !u.deleted).length;
+            $('#sOnline').textContent = us.filter(u => u.online && !u.deleted).length;
+            $('#sDeleted').textContent = us.filter(u => u.deleted).length;
+            $('#sSimilar').textContent = data.similar.length;
+            $('#days').textContent = data.restoreDays;
+            $('#similar').innerHTML = data.similar.length ? data.similar.map(g => `<div class="grp"><table>${g.map(id => byId[id]).map(u => `<tr class="${u.deleted ? 'deleted' : ''}">
+                <td>#${u.id}</td><td><b>${esc(u.name)}</b><br><span class="muted">${esc(u.handle)}</span></td><td>${tagsOf(u)}</td><td>${u.friends} bạn</td><td>${fmt(u.created)}</td><td>${actsOf(u)}</td></tr>`).join('')}</table></div>`).join('')
+                : '<p class="muted">✓ Không có tài khoản nào trùng hoặc gần giống tên nhau.</p>';
+            const q = $('#q').value.trim().toLowerCase(), f = $('#filter').value;
+            const list = us.filter(u => (!q || u.name.toLowerCase().includes(q) || u.handle.includes(q) || String(u.id) === q.replace('#', ''))
+                && (f === 'all' || (f === 'deleted' ? u.deleted : f === 'online' ? u.online && !u.deleted : !u.deleted)));
+            $('#rows').innerHTML = list.map(u => `<tr class="${u.deleted ? 'deleted' : ''}"><td>#${u.id}</td><td><b>${esc(u.name)}</b></td><td>${tagsOf(u)}</td>
+                <td>${u.friends}</td><td>${u.devices}</td><td>${fmt(u.created)}</td><td>${fmt(u.lastSeen)}</td><td>${actsOf(u)}</td></tr>`).join('')
+                || '<tr><td colspan="8" class="muted">Không có tài khoản phù hợp</td></tr>';
+        }
+        async function load() {
+            try { data = await api('admin/users'); render(); }
+            catch (e) { if (e.status === 401) return logout(); msg(e.message); }
+        }
+        const CONFIRM = {
+            delete: u => `Xóa tài khoản "${u.name}"? Tài khoản bị đăng xuất mọi máy, ẩn khỏi bạn bè. Phục hồi được trong ${data.restoreDays} ngày.`,
+            purge: u => `XÓA VĨNH VIỄN tài khoản "${u.name}"? Không thể phục hồi và tên sẽ được người khác đăng ký lại.`,
+            logout: u => `Đăng xuất "${u.name}" trên mọi thiết bị?`,
+        };
+        document.addEventListener('click', async e => {
+            const b = e.target.closest('[data-act]');
+            if (!b) return;
+            const u = data.users.find(x => x.id === +b.dataset.id);
+            if (CONFIRM[b.dataset.act] && !confirm(CONFIRM[b.dataset.act](u))) return;
+            b.disabled = true;
+            try { await api('admin/action', { id: u.id, action: b.dataset.act }); await load(); }
+            catch (err) { alert(err.message); b.disabled = false; }
+        });
+        $('#q').oninput = () => data && render();
+        $('#filter').onchange = () => data && render();
+        $('#reload').onclick = load;
+        function logout() { token = ''; sessionStorage.removeItem('lanchat-admin'); $('#dash').classList.add('hidden'); $('#loginCard').classList.remove('hidden'); $('#logoutBtn').classList.add('hidden'); }
+        $('#logoutBtn').onclick = logout;
+        let setupMode = false;
+        $('#loginForm').onsubmit = async e => {
+            e.preventDefault();
+            const pw = $('#pw').value;
+            try {
+                if (setupMode) {
+                    if (pw.length < 8) return msg('Mật khẩu quản trị cần ít nhất 8 ký tự');
+                    if (pw !== $('#pw2').value) return msg('Hai lần nhập chưa giống nhau');
+                    await api('admin/setup', { passHash: await sha256(pw) });
+                }
+                token = (await api('admin/login', { passHash: await sha256(pw) })).token;
+                sessionStorage.setItem('lanchat-admin', token);
+                $('#pw').value = $('#pw2').value = ''; msg('');
+                enter();
+            } catch (err) { msg(err.message); $('#pw').value = ''; }
+        };
+        async function enter() {
+            $('#loginCard').classList.add('hidden'); $('#dash').classList.remove('hidden'); $('#logoutBtn').classList.remove('hidden');
+            await load();
+        }
+        (async () => {
+            const st = await findServer();
+            if (!st) { $('#loginBtn').disabled = true; return msg('Không kết nối được máy chủ. Hãy bật máy chủ trên laptop rồi tải lại trang.'); }
+            $('#srvLbl').textContent = '🟢 ' + (base ? new URL(base).host : location.host);
+            if (!st.setup) {
+                if (!st.local) { $('#loginBtn').disabled = true; return msg('Chưa đặt mật khẩu quản trị. Mở http://localhost:8000/quan-tri.html ngay trên laptop máy chủ để đặt lần đầu.'); }
+                setupMode = true;
+                $('#loginTitle').textContent = 'Đặt mật khẩu quản trị (lần đầu)';
+                $('#loginHint').textContent = 'Mật khẩu này dùng để vào trang quản trị từ mọi máy. Ít nhất 8 ký tự, hãy ghi nhớ cẩn thận.';
+                $('#pw2').classList.remove('hidden'); $('#loginBtn').textContent = 'Đặt mật khẩu';
+                return;
+            }
+            if (token) { try { await api('admin/users'); return enter(); } catch (e) { logout(); } }
+        })();
+    </script>
+</body>
+
+</html>
