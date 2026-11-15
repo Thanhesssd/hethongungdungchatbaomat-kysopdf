@@ -117,8 +117,9 @@ def _cloud_upload():
 LOCK_SECONDS = 60
 SESSION_SECONDS = 30 * 24 * 3600
 STATIC_TYPES = {".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8",
-                ".svg": "image/svg+xml", ".png": "image/png", ".webp": "image/webp"}
-ASSET_RE = re.compile(r"^assets/(icons/)?[a-z0-9-]+\.(svg|png|webp)$")  # logo và biểu tượng giao diện
+                ".svg": "image/svg+xml", ".png": "image/png", ".webp": "image/webp", ".jpg": "image/jpeg",
+                ".webmanifest": "application/manifest+json"}
+ASSET_RE = re.compile(r"^assets/(icons/)?[a-z0-9-]+\.(svg|png|webp|jpg|webmanifest)$")  # logo và biểu tượng giao diện
 
 
 class Store:
