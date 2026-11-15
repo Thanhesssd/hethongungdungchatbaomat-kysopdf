@@ -41,6 +41,7 @@ PORT = int(os.environ.get("LANCHAT_PORT", 8443))
 LOCAL_PORT = int(os.environ.get("LANCHAT_LOCAL_PORT", 8000))
 ONLINE_SECONDS = 30
 MAX_BODY = 1024 * 1024
+MAX_VAULT = 4 * 1024 * 1024  # két dữ liệu tài khoản (đã mã hóa) được lớn hơn tin nhắn thường
 MAX_GROUP = 50
 MAX_FAILS = 5
 MAX_SIGNUPS_PER_HOUR = 10
@@ -327,7 +328,7 @@ class Handler(BaseHTTPRequestHandler):
 
     def read_json(self):
         length = int(self.headers.get("Content-Length", 0))
-        if length > MAX_BODY:
+        if length > (MAX_VAULT if urlparse(self.path).path == "/api/vault" else MAX_BODY):
             raise ValueError("Dữ liệu quá lớn")
         return json.loads(self.rfile.read(length) or b"{}")
 
@@ -561,6 +562,11 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json({"error": "Dữ liệu không hợp lệ"}, 400)
         with self.store.cond:
             user = self.store.users[uid]
+            # Máy gửi kèm số phiên bản nó đang có. Máy khác đã lưu bản mới hơn thì từ chối, để máy này tải về gộp
+            # rồi gửi lại, không ghi đè mất dữ liệu vừa lưu từ máy kia. Bản app cũ không gửi base thì vẫn nhận như trước.
+            base = body.get("base")
+            if base is not None and int(base) != user.get("vaultVer", 0):
+                return self.send_json({"error": "Két đã được thiết bị khác cập nhật", "ver": user.get("vaultVer", 0)}, 409)
             user["vault"] = env
             # Số phiên bản tăng mỗi lần lưu; máy khác của cùng tài khoản thấy số mới trong /api/sync thì tải lại
             user["vaultVer"] = user.get("vaultVer", 0) + 1

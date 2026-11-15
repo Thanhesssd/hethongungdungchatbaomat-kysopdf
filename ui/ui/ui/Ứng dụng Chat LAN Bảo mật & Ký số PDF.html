@@ -1990,6 +1990,7 @@
             if (ok) {
                 flushOutbox();
                 if (!state.vaultReady && state.token) vaultLoad();
+                else if (state.token) vaultSave(); // gửi nốt thay đổi làm lúc mất mạng
                 if (state.offline) { state.offline = false; toast('🟢 Đã kết nối lại máy chủ, dữ liệu đã đồng bộ'); }
             }
         }
@@ -3245,8 +3246,9 @@
             return {
                 mySig: state.mySig || null, sigAt: state.mySigAt || 0, history: state.history.slice(0, 200), mem: state.mem || {},
                 contacts: state.contacts.filter(c => c.local).map(({ id, name, role, ip, fp }) => ({ id, name, role, ip, fp, local: true })),
-                msgLock: state.msgLock || null, cover: state.cover || null, coverAt: state.coverAt || 0,
-                myAvatar: state.myAvatar || null, myAvatarAt: state.myAvatarAt || 0,
+                // Ảnh bìa, ảnh đại diện đã đồng bộ riêng qua /api/cover, /api/avatar: không gửi kèm két nữa,
+                // trước đây hai ảnh làm két vượt giới hạn 1 MB của máy chủ, két không lưu được nên máy khác không nhận được gì
+                msgLock: state.msgLock || null,
                 theme: themeNow().theme, themeAt: themeNow().at, cleared: state.cleared || {}, localMsgs: localMsgs(),
             };
         }
@@ -3291,27 +3293,62 @@
         }
         // Gửi két lên máy chủ. Không đổi gì so với lần gửi trước thì bỏ qua: trước đây mỗi vòng đồng bộ đều gửi lại,
         // mỗi lần gửi lại đánh thức đồng bộ của mọi máy, thành vòng lặp gửi liên tục khoảng 1,5 giây một lần.
+        // Két quá lớn thì bớt phần cũ (tin cũ, lịch sử ký cũ) thay vì để máy chủ từ chối cả két
+        function vaultTrim(data) {
+            let json = JSON.stringify(data);
+            for (let keep = 50; json.length > 600000 && keep >= 5; keep = Math.floor(keep / 2)) {
+                for (const k of Object.keys(data.localMsgs)) data.localMsgs[k] = data.localMsgs[k].slice(-keep);
+                data.history = data.history.slice(0, keep * 2);
+                json = JSON.stringify(data);
+            }
+            return json;
+        }
+        async function sealVault(text) {
+            if (!window.CompressionStream) return sealFor([state.me], text);
+            const weak = state.weak;
+            state.weak = true; // nén luôn két (máy mở két đọc được cả bản nén lẫn không nén)
+            try { return await sealFor([state.me], text); } finally { state.weak = weak; }
+        }
+        // Gửi két lên máy chủ. Không đổi gì so với lần gửi trước thì bỏ qua: trước đây mỗi vòng đồng bộ đều gửi lại,
+        // mỗi lần gửi lại đánh thức đồng bộ của mọi máy, thành vòng lặp gửi liên tục khoảng 1,5 giây một lần.
+        // Kèm số phiên bản đang có (base): máy khác vừa lưu trước thì máy chủ trả 409, máy này tải bản đó về gộp
+        // rồi mới gửi, để hai máy lưu cùng lúc không ghi đè mất dữ liệu của nhau.
         async function vaultPush(force) {
             if (!state.server || !state.token || !state.vaultReady) return false;
-            const json = JSON.stringify(vaultData());
-            if (!force && json === state.vaultSent) return true;
-            const r = await api('vault', { env: await sealFor([state.me], JSON.stringify({ ...JSON.parse(json), saved: Date.now() })) });
-            state.vaultSent = json;
-            if (r.ver) state.vaultVer = r.ver;
-            return true;
+            for (let tries = 0; tries < 4; tries++) {
+                while (vaultBusy) await sleep(200);
+                const json = vaultTrim(vaultData());
+                if (!force && json === state.vaultSent) return true;
+                try {
+                    const env = await sealVault(JSON.stringify({ ...JSON.parse(json), saved: Date.now() }));
+                    const r = await api('vault', { env, base: state.vaultVer || 0 });
+                    state.vaultSent = json;
+                    if (r.ver) state.vaultVer = r.ver;
+                    return true;
+                } catch (e) {
+                    if (e.status !== 409) throw e;
+                    await vaultLoad(); // bản trên máy chủ mới hơn: gộp vào rồi gửi lại
+                }
+            }
+            return false;
         }
         async function vaultSaveNow() {
             clearTimeout(vaultTimer);
-            try { return await vaultPush(); } catch (e) { vaultSave(); return false; }
+            try { return await vaultPush(); } catch (e) { vaultSave(5000); return false; }
         }
-        function vaultSave() {
+        // Gửi lỗi (mất mạng, máy chủ đang khởi động lại...) thì tự thử lại, chậm dần tới 1 phút/lần
+        function vaultSave(delay = 1500) {
             if (!state.server || !state.token || !state.vaultReady) return;
             clearTimeout(vaultTimer);
-            vaultTimer = setTimeout(() => vaultPush().catch(() => { }), 1500);
+            vaultTimer = setTimeout(() => vaultPush()
+                .then(ok => { if (!ok) vaultSave(5000); })
+                .catch(e => { if (e.status !== 401) vaultSave(Math.min(delay * 2, 60000)); }), delay);
         }
+        let vaultAgain = false;
         async function vaultLoad() {
-            if (vaultBusy) return;
+            if (vaultBusy) { vaultAgain = true; return; } // đang tải: tải thêm lần nữa ngay sau, không bỏ lỡ bản mới
             vaultBusy = true;
+            vaultAgain = false;
             try {
                 const { env, ver } = await api('vault');
                 if (env) {
@@ -3349,6 +3386,7 @@
                 var vaultLoaded = true;
             } catch (e) { }
             vaultBusy = false;
+            if (vaultAgain) return vaultLoad();
             // Lần đầu đăng nhập ở máy này: đẩy dữ liệu sẵn có của máy lên để máy khác cũng có
             if (vaultLoaded && !state.vaultReady) { state.vaultReady = true; vaultSave(); }
             else if (vaultLoaded) vaultSave(); // chỉ thực sự gửi nếu bản gộp khác bản đã gửi
