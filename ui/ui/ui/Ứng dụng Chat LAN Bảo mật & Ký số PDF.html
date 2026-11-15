@@ -972,7 +972,8 @@
             const cur = document.documentElement.dataset.theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
             const next = cur === 'dark' ? 'light' : 'dark';
             document.documentElement.dataset.theme = next;
-            try { localStorage.setItem('lanchat-theme', next); } catch (e) { }
+            try { localStorage.setItem('lanchat-theme', next); localStorage.setItem('lanchat-theme-at', String(Date.now())); } catch (e) { }
+            if (typeof vaultSave === 'function') vaultSave(); // máy khác cùng tài khoản cũng đổi theo
         };
 
         // ============ Trạng thái ============
@@ -1437,7 +1438,7 @@
                 const data = {
                     chats: state.chats, unread: state.unread, msgLock: state.msgLock || null, cover: state.cover || null, coverAt: state.coverAt || 0,
                     myAvatar: state.myAvatar || null, myAvatarAt: state.myAvatarAt || 0,
-                    extraContacts: state.contacts.filter(c => c.id > 100 && !c.real && !c.group), mem: state.mem || {}, seq: state.seq || 0, blank: !!state.blank, outbox: state.outbox,
+                    extraContacts: state.contacts.filter(c => c.id > 100 && !c.real && !c.group), mem: state.mem || {}, seq: state.seq || 0, blank: !!state.blank, outbox: state.outbox, cleared: state.cleared || {},
                     serverContacts: state.contacts.filter(c => c.real || c.group).map(c => ({ id: c.id, name: c.name, role: c.role, ip: c.ip, real: c.real, group: c.group, members: c.members, fp: c.fp })),
                     me: state.server ? state.me : undefined, code: state.server ? state.code : undefined,
                     people: Object.fromEntries(Object.values(state.people || {}).filter(p => p.pubB64).map(p => [p.id, { id: p.id, name: p.name, pubB64: p.pubB64 }])),
@@ -1478,6 +1479,7 @@
                 if ((data.myAvatarAt || 0) > (state.myAvatarAt || 0)) useMyAvatar(data.myAvatar, data.myAvatarAt);
                 if (data.msgLock && (data.msgLock.at || 0) > (state.msgLock?.at || 0)) { state.msgLock = data.msgLock; state.msgLocked = !!data.msgLock.hash; }
                 state.outbox = data.outbox || [];
+                state.cleared = { ...(data.cleared || {}), ...(state.cleared || {}) };
                 if (state.offline && !state.me && data.me) { state.me = data.me; state.code = data.code; }
                 return Object.values(state.chats).reduce((a, l) => a + l.length, 0);
             } catch (e) { return 0; }
@@ -1501,6 +1503,7 @@
             clearArmed = null;
             btn.textContent = '🗑 Xóa lịch sử';
             state.chats[state.active] = [];
+            (state.cleared ||= {})[state.active] = Date.now(); // đồng bộ: máy khác và máy mới đăng nhập cũng không hiện lại
             saveChats();
             renderMsgs(); renderConvs();
             toast('Đã xóa lịch sử cuộc trò chuyện này');
@@ -2096,6 +2099,7 @@
                 if (state.seen.has(msg.seq)) continue;
                 state.seen.add(msg.seq);
                 const cid = msg.group ?? (msg.from === state.me ? msg.to : msg.from);
+                if (msg.ts <= (state.cleared?.[cid] || 0)) continue; // đã xóa lịch sử (ở máy này hoặc máy khác)
                 const mine = msg.from === state.me;
                 let text;
                 try { text = await openEnvelope(msg.env); } catch (e) { text = '[Không giải mã được tin nhắn này]'; }
@@ -3243,7 +3247,47 @@
                 contacts: state.contacts.filter(c => c.local).map(({ id, name, role, ip, fp }) => ({ id, name, role, ip, fp, local: true })),
                 msgLock: state.msgLock || null, cover: state.cover || null, coverAt: state.coverAt || 0,
                 myAvatar: state.myAvatar || null, myAvatarAt: state.myAvatarAt || 0,
+                theme: themeNow().theme, themeAt: themeNow().at, cleared: state.cleared || {}, localMsgs: localMsgs(),
             };
+        }
+        function themeNow() {
+            try { return { theme: localStorage.getItem('lanchat-theme') || null, at: +localStorage.getItem('lanchat-theme-at') || 0 }; }
+            catch (e) { return { theme: null, at: 0 }; }
+        }
+        // Tin chỉ có ở máy này (không đi qua máy chủ): tin với liên hệ thêm tay, ghi chú gửi tài liệu đã ký...
+        // Tin từ máy chủ (có seq) thì máy mới tự tải lại nên không cần gửi kèm. Bỏ hội thoại mẫu (mã 1–100).
+        const msgKey = m => (m.ts || m.time) + '|' + m.dir + '|' + (m.text || '') + '|' + (m.file || '');
+        function localMsgs() {
+            const out = {};
+            for (const [cid, list] of Object.entries(state.chats || {})) {
+                if (+cid <= 100) continue;
+                const mine = list.filter(m => !m.seq && m.ts).slice(-100)
+                    .map(({ dir, text, time, ts, file, note, who }) => ({ dir, text: text?.slice(0, 4000), time, ts, file, note, who }));
+                if (mine.length) out[cid] = mine;
+            }
+            return out;
+        }
+        async function mergeVaultChats(data) {
+            let changed = false;
+            for (const [cid, at] of Object.entries(data.cleared || {})) {
+                if (at <= (state.cleared?.[cid] || 0)) continue;
+                (state.cleared ||= {})[cid] = at;
+                if (state.chats[cid]) state.chats[cid] = state.chats[cid].filter(m => (m.ts || 0) > at);
+                changed = true;
+            }
+            for (const [cid, list] of Object.entries(data.localMsgs || {})) {
+                const have = new Set((state.chats[cid] || []).map(msgKey));
+                const add = list.filter(m => !have.has(msgKey(m)) && (m.ts || 0) > (state.cleared?.[cid] || 0));
+                if (!add.length) continue;
+                for (const m of add) if (m.text) m.cipher = await encryptText(m.text);
+                state.chats[cid] = [...(state.chats[cid] || []), ...add].sort((a, b) => (a.ts || 0) - (b.ts || 0));
+                changed = true;
+            }
+            if ((data.themeAt || 0) > themeNow().at && data.theme) {
+                document.documentElement.dataset.theme = data.theme;
+                try { localStorage.setItem('lanchat-theme', data.theme); localStorage.setItem('lanchat-theme-at', String(data.themeAt)); } catch (e) { }
+            }
+            if (changed) { saveChats(); renderConvs(); renderMsgs(); }
         }
         // Gửi két lên máy chủ. Không đổi gì so với lần gửi trước thì bỏ qua: trước đây mỗi vòng đồng bộ đều gửi lại,
         // mỗi lần gửi lại đánh thức đồng bộ của mọi máy, thành vòng lặp gửi liên tục khoảng 1,5 giây một lần.
@@ -3288,6 +3332,7 @@
                     if (data.mySig && (!state.mySig || (data.sigAt || 0) > (state.mySigAt || 0))) {
                         state.mySig = data.mySig; state.mySigAt = data.sigAt || 0; drawImageToMyPad(data.mySig);
                     }
+                    await mergeVaultChats(data);
                     const seen = new Set(state.history.map(x => x.text + '|' + x.time));
                     state.history = [...state.history, ...(data.history || []).filter(x => !seen.has(x.text + '|' + x.time))].slice(0, 200);
                     state.mem = { ...(data.mem || {}), ...(state.mem || {}) };
