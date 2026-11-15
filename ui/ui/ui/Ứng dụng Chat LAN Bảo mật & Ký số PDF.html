@@ -86,7 +86,7 @@
         .hidden { display: none !important; }
 
         /* ===== Nút & ô nhập ===== */
-        .btn { display: inline-flex; align-items: center; justify-content: center; gap: .45rem; padding: .6rem 1.1rem; border-radius: 9px; border: 1px solid var(--border); background: var(--panel); font-weight: 600; transition: .15s; white-space: nowrap; }
+        .btn { display: inline-flex; align-items: center; justify-content: center; gap: .45rem; padding: .6rem 1.1rem; border-radius: 9px; border: 1px solid var(--border); background: var(--panel); font-weight: 600; transition: background-color .1s, border-color .1s, color .1s, transform .1s, filter .1s; white-space: nowrap; }
         .btn:hover { border-color: var(--primary); color: var(--primary); }
         .btn.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
         .btn.primary:hover { filter: brightness(1.08); color: #fff; }
@@ -95,6 +95,10 @@
         .btn.sm { padding: .35rem .7rem; font-size: .82rem; border-radius: 7px; }
         .btn.block { width: 100%; }
         .btn:disabled { opacity: .5; cursor: not-allowed; }
+        /* Bấm là phản hồi ngay: bỏ độ trễ chạm ~300 ms (chờ xem có chạm đúp phóng to không) và nháy xanh khi chạm trên điện thoại */
+        button, .btn, a, label, [role="button"], [data-open-sign], [data-pdf], .conv, .contact-row { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+        .btn:active:not(:disabled) { transform: scale(.96); filter: brightness(.95); transition-duration: .05s; }
+        .msg.sending .bubble { opacity: .65; }
         .field { display: flex; flex-direction: column; gap: .35rem; margin-bottom: .9rem; }
         .field label { font-weight: 600; font-size: .82rem; }
         .input { width: 100%; padding: .65rem .8rem; border-radius: 9px; border: 1px solid var(--border); background: var(--panel-2); outline: none; }
@@ -1255,7 +1259,7 @@
             $('#steps').classList.remove('hidden');
             const keyPromise = generateKeys();
             for (const s of steps) {
-                await sleep(450);
+                await sleep(120);
                 s.classList.add('done');
                 s.querySelector('i').textContent = '✓';
             }
@@ -1639,7 +1643,7 @@
                         <div class="info">${msgTime(m)} · 🔒${m.dir === 'out' ? ' ' + tickFor(m) : ''}</div></div>`;
                 }).join('');
             box.insertAdjacentHTML('beforeend', state.outbox.filter(m => m.cid === state.active).map(m => `<div class="msg out">
-                <div class="bubble" style="opacity:.6">${esc(m.text)}</div><div class="info">⏳ Chưa gửi được, sẽ tự gửi lại khi có mạng</div></div>`).join(''));
+                <div class="bubble" style="opacity:.6">${esc(m.text)}</div><div class="info">⏳ Chưa gửi được, sẽ tự gửi lại khi có mạng</div></div>`).join('') + pendingHtml());
             box.scrollTop = box.scrollHeight;
             $$('[data-open-sign]').forEach(el => el.onclick = () => go('sign'));
             $$('[data-pic-view]', box).forEach(el => el.onclick = () => viewImage(el.src, { title: 'Ảnh' }));
@@ -1740,8 +1744,11 @@
             if (!c) return;
             if (c.real || c.group) {
                 const mid = crypto.randomUUID();
-                try { if (!state.token) throw new TypeError('offline'); await sendReal(c, text, mid); }
+                const p = { cid, text, mid, at: Date.now() };
+                state.sending.push(p); renderMsgs();
+                try { if (!state.token) throw new TypeError('offline'); p.seq = (await sendReal(c, text, mid)).seq; }
                 catch (err) {
+                    state.sending = state.sending.filter(x => x !== p);
                     if (err.status && err.status < 500) { toast(err.message); $('#msgInput').value = text; return; }
                     state.outbox.push({ cid, text, mid, ts: Date.now() });
                     saveChats(); renderMsgs(); renderConvs();
@@ -1963,8 +1970,11 @@
             // Mở link GitHub ngay trên máy chạy máy chủ: gọi qua http://localhost, trình duyệt cho phép mà không cần tin chứng chỉ
             if (!health && staticHost && location.protocol === 'https:') {
                 const local = `http://localhost:${state.discoverLocalPort || 8000}/`;
-                const h = await probe(local, 1500).catch(() => null);
-                if (h) { health = h; state.apiBase = local; state.routeKind = 'lan'; }
+                const [h, dir] = await Promise.all([probe(local, 1500).catch(() => null),
+                    fetch('may-chu.json?t=' + Date.now(), { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null)]);
+                const mainId = dir ? (dir.cloud ? dir.cloudId : dir.id) : null;
+                if (h && (!mainId || h.id === mainId)) { health = h; state.apiBase = local; state.routeKind = 'lan'; }
+                else if (h) toast('ℹ Máy này đang chạy một máy chủ riêng (dữ liệu khác). App dùng máy chủ chung để mọi thiết bị thấy cùng dữ liệu');
             }
             // Thiết bị mới mở link GitHub lần đầu (chưa lưu địa chỉ nào): lấy địa chỉ máy chủ từ may-chu.json
             if (!health && staticHost && location.protocol === 'https:' && await refreshDirectory()) toast('📡 Đang tự kết nối tới máy chủ LAN Chat…');
@@ -2115,7 +2125,16 @@
         async function sendReal(c, text, mid = crypto.randomUUID()) {
             const ids = c.group ? c.members : [state.me, c.id];
             const env = await sealFor(ids, text);
-            await api('send', c.group ? { group: c.id, env, mid } : { to: c.id, env, mid });
+            const r = await api('send', c.group ? { group: c.id, env, mid } : { to: c.id, env, mid });
+            refresh().catch(() => { }); // lấy tin vừa gửi về ngay, không chờ vòng đồng bộ
+            return r;
+        }
+        // Tin đang gửi: hiện ngay khi bấm Gửi (mờ, ⏳), tự biến mất khi tin thật từ máy chủ về tới
+        state.sending = [];
+        function pendingHtml() {
+            state.sending = state.sending.filter(p => !(p.seq && state.seen.has(p.seq)) && Date.now() - p.at < 30000);
+            return state.sending.filter(p => p.cid === state.active).map(p => `<div class="msg out sending">
+                <div class="bubble">${esc(p.text)}</div><div class="info">⏳ Đang gửi…</div></div>`).join('');
         }
 
         async function applySync(d) {
