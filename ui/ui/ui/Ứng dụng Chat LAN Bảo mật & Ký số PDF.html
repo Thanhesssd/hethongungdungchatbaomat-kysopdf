@@ -510,6 +510,7 @@
                     <div class="field">
                         <label for="fName">Tên tài khoản, mã số hoặc Địa chỉ LAN Chat</label>
                         <input class="input" id="fName" value="Nguyễn Văn An" required>
+                        <small id="nameCheck" class="hidden" style="display:block;margin-top:.3rem;font-size:.8rem" aria-live="polite"></small>
                     </div>
                     <div class="field">
                         <label for="fPass">Mật khẩu</label>
@@ -869,6 +870,19 @@
                             <dl class="kv" id="certInfo"></dl>
                         </div>
                     </div>
+                    <div class="card" id="pwCard" style="grid-column:1/-1">
+                        <div class="card-h"><h3>🔑 Đổi mật khẩu</h3></div>
+                        <div class="card-b">
+                            <p class="muted" style="font-size:.84rem">Phải nhập đúng mật khẩu hiện tại. Đổi xong, các thiết bị khác đang đăng nhập tài khoản này sẽ bị đăng xuất và phải đăng nhập lại bằng mật khẩu mới. Tin nhắn, bạn bè và ảnh vẫn giữ nguyên.</p>
+                            <form id="pwForm" style="display:grid;gap:.5rem;max-width:420px" autocomplete="off">
+                                <input class="input" id="pwOld" type="password" autocomplete="current-password" placeholder="Mật khẩu hiện tại" required>
+                                <input class="input" id="pwNew" type="password" autocomplete="new-password" placeholder="Mật khẩu mới (ít nhất 4 ký tự)" required>
+                                <input class="input" id="pwNew2" type="password" autocomplete="new-password" placeholder="Nhập lại mật khẩu mới" required>
+                                <div><button class="btn sm primary" id="pwSave" type="submit">Đổi mật khẩu</button></div>
+                                <p class="muted" id="pwMsg" style="font-size:.8rem;min-height:1.1em"></p>
+                            </form>
+                        </div>
+                    </div>
                     <div class="card" id="lockCard" style="grid-column:1/-1">
                         <div class="card-h"><h3>🔒 Bảo mật tin nhắn</h3><span class="chip" id="lockChip">Chưa bật</span></div>
                         <div class="card-b">
@@ -1022,7 +1036,27 @@
             $('#switchText').textContent = reg ? 'Đã có tài khoản?' : 'Chưa có tài khoản?';
             $('#switchBtn').textContent = reg ? 'Đăng nhập' : 'Đăng ký ngay';
             formErr('');
+            checkNameSoon();
         }
+        // Đăng ký: kiểm tra tên ngay khi gõ (máy chủ trả lời tên đã có người dùng chưa)
+        let nameTimer = null, nameSeq = 0;
+        function checkNameSoon() {
+            clearTimeout(nameTimer);
+            const box = $('#nameCheck');
+            const name = $('#fName').value.trim().replace(/\s+/g, ' ').normalize('NFC');
+            if (mode !== 'register' || !state.server || name.length < 2) { box.classList.add('hidden'); return; }
+            nameTimer = setTimeout(async () => {
+                const my = ++nameSeq;
+                try {
+                    const r = await api('name-check?name=' + encodeURIComponent(name));
+                    if (my !== nameSeq) return;
+                    box.classList.remove('hidden');
+                    box.style.color = r.ok ? 'var(--green, #16a34a)' : 'var(--red, #dc2626)';
+                    box.textContent = r.ok ? '✓ Tên này dùng được' : '✕ ' + r.reason;
+                } catch (e) { box.classList.add('hidden'); }
+            }, 400);
+        }
+        $('#fName').addEventListener('input', checkNameSoon);
         $$('.seg button').forEach(b => b.onclick = () => setMode(b.dataset.mode));
         $('#switchBtn').onclick = () => setMode(mode === 'login' ? 'register' : 'login');
         const updateHash = async () => {
@@ -1154,7 +1188,7 @@
                     Object.assign(state, keep);
                     if (e.status && e.status < 500) {
                         netStatus('off', 'Đã thấy máy chủ nhưng chưa đưa được tài khoản lên', true);
-                        toast(how === 'register' ? `Tên "${name}" đã có người dùng trên máy chủ. Hãy đăng xuất và đăng ký tên khác` : 'Máy chủ không nhận mật khẩu này: ' + e.message);
+                        toast(how === 'register' ? `Tài khoản "${name}" đã tồn tại (đã có người đăng ký). Xin bạn đăng xuất và tạo tài khoản với tên khác` : 'Máy chủ không nhận mật khẩu này: ' + e.message);
                         state.upgrading = false;
                         return;
                     }
@@ -1264,6 +1298,18 @@
                 s.querySelector('i').textContent = '✓';
             }
             state.passHash = await sha256($('#fPass').value);
+            if (!state.server) {
+                const ok = await checkLocalPassword(name, state.passHash);
+                const knownLocal = ok !== null;
+                const failLocal = msg => { $('#steps').classList.add('hidden'); $('#loginBtn').disabled = false; regResult(false, msg, mode === 'register' ? '#fName' : '#fPass'); };
+                if (mode === 'register' && knownLocal) return failLocal('Tài khoản này đã tồn tại trên máy này. Xin bạn tạo tài khoản với tên khác, hoặc chuyển sang Đăng nhập');
+                if (mode === 'login' && ok === false) { $('#fPass').value = ''; return failLocal('Sai mật khẩu. Hãy nhập lại đúng mật khẩu'); }
+                if (mode === 'login' && !knownLocal && state.forceLocal)
+                    return failLocal('Chưa kết nối được máy chủ nên chưa kiểm tra được mật khẩu của tài khoản này. App đang tự tìm máy chủ, hãy thử lại sau ít phút. Muốn dùng ngay trên máy này thì chọn Đăng ký');
+                if (mode === 'login' && !knownLocal && name !== SAMPLE_USER)
+                    return failLocal('Không tìm thấy tài khoản này trên máy này. Hãy kiểm tra lại tên, hoặc chọn Đăng ký để tạo tài khoản mới');
+                if (!knownLocal) await setLocalPassword(name, state.passHash);
+            }
             state.user = name;
             state.isNew = mode === 'register';
             // Mọi tài khoản bắt đầu trống, danh bạ chỉ có người đã kết bạn.
@@ -1285,7 +1331,8 @@
                         return;
                     }
                     const reason = err.name === 'OperationError' ? 'Không mở được khóa riêng. Hãy kiểm tra lại mật khẩu.' : regError(err);
-                    regResult(false, reason, /đã có tài khoản/.test(err.message) ? '#fName' : '#fPass');
+                    if (err.status === 401 || err.name === 'OperationError') $('#fPass').value = '';
+                    regResult(false, reason, /đã tồn tại|đã có tài khoản|Tên tài khoản/.test(err.message) ? '#fName' : '#fPass');
                     return;
                 }
             }
@@ -1418,6 +1465,27 @@
 
         // ============ Ghi nhớ lịch sử trò chuyện ============
         // Lịch sử được mã hóa AES-256-GCM bằng khóa sinh từ mật khẩu (PBKDF2), lưu theo từng tài khoản
+
+        // ============ Mật khẩu tài khoản trên máy này (khi chưa có máy chủ) ============
+        // Lưu dấu kiểm tra mật khẩu (PBKDF2 có muối, không lưu mật khẩu) để đăng nhập lại phải đúng mật khẩu,
+        // và mỗi tên chỉ đăng ký được một tài khoản trên máy.
+        const localKey = n => n.normalize('NFC').toLowerCase().replace(/\s+/g, ' ').trim();
+        function localAccounts() { try { return JSON.parse(localStorage.getItem('lanchat-local-accounts') || '{}'); } catch (e) { return {}; } }
+        async function localVerifier(passHash, salt) {
+            const base = await crypto.subtle.importKey('raw', enc.encode(passHash), 'PBKDF2', false, ['deriveBits']);
+            return b64(await crypto.subtle.deriveBits({ name: 'PBKDF2', salt: unb64(salt), iterations: 100000, hash: 'SHA-256' }, base, 256));
+        }
+        async function setLocalPassword(name, passHash) {
+            const all = localAccounts(), salt = b64(crypto.getRandomValues(new Uint8Array(16)));
+            all[localKey(name)] = { salt, v: await localVerifier(passHash, salt) };
+            try { localStorage.setItem('lanchat-local-accounts', JSON.stringify(all)); } catch (e) { }
+        }
+        async function checkLocalPassword(name, passHash) {
+            const rec = localAccounts()[localKey(name)];
+            if (!rec) return null; // chưa có tài khoản này trên máy
+            return await localVerifier(passHash, rec.salt) === rec.v;
+        }
+
         async function deriveHistKey(password, user) {
             const base = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveKey']);
             return crypto.subtle.deriveKey(
@@ -5244,6 +5312,43 @@
         $('#tAvatar').onclick = () => { if (state.active != null) friendProfile(state.active); };
         $('#tName').style.cursor = 'pointer';
         $('#tName').onclick = () => { if (state.active != null) friendProfile(state.active); };
+
+        // ============ Đổi mật khẩu ============
+        $('#pwForm').onsubmit = async e => {
+            e.preventDefault();
+            const oldP = $('#pwOld').value, newP = $('#pwNew').value, msg = t => { $('#pwMsg').textContent = t; };
+            if (newP.length < 4) return msg('Mật khẩu mới cần ít nhất 4 ký tự');
+            if (newP !== $('#pwNew2').value) return msg('Hai lần nhập mật khẩu mới chưa giống nhau');
+            if (newP === oldP) return msg('Mật khẩu mới phải khác mật khẩu hiện tại');
+            const oldHash = await sha256(oldP), newHash = await sha256(newP);
+            if (oldHash !== state.passHash) { $('#pwOld').value = ''; return msg('Mật khẩu hiện tại chưa đúng'); }
+            $('#pwSave').disabled = true; msg('⏳ Đang đổi mật khẩu…');
+            try {
+                const acct = state.server ? state.user.toLowerCase() : state.user;
+                const newKey = await deriveHistKey(newP, acct);
+                const oldStore = histStoreKey();
+                let loggedOut = 0;
+                if (state.server) {
+                    if (!state.token) throw new Error('Cần kết nối máy chủ để đổi mật khẩu');
+                    const pkcs8 = await crypto.subtle.exportKey('pkcs8', keyPair.privateKey);
+                    const iv = crypto.getRandomValues(new Uint8Array(12));
+                    const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, newKey, pkcs8);
+                    loggedOut = (await api('password', { oldHash, newHash, priv: { iv: b64(iv), ct: b64(ct) } })).loggedOut || 0;
+                } else await setLocalPassword(state.user, newHash);
+                // Bản lưu tin nhắn trên máy: mã hóa lại bằng mật khẩu mới
+                state.passHash = newHash; state.histKey = newKey; state.histId = await sha256(acct + ':' + newHash);
+                await saveChatsNow();
+                if (histStoreKey() !== oldStore) try { localStorage.removeItem(oldStore); } catch (e2) { }
+                try { if (await sessionStore('readonly', s => s.get(sessionId()))) await saveSession(); } catch (e2) { }
+                $('#pwOld').value = $('#pwNew').value = $('#pwNew2').value = '';
+                msg('✅ Đã đổi mật khẩu' + (loggedOut ? `. ${loggedOut} thiết bị khác đã bị đăng xuất` : ''));
+                toast('🔑 Đã đổi mật khẩu. Lần sau đăng nhập bằng mật khẩu mới');
+                renderAccount();
+            } catch (err) {
+                msg(err.status === 403 ? 'Mật khẩu hiện tại chưa đúng' : (err.message || 'Chưa đổi được mật khẩu'));
+            }
+            $('#pwSave').disabled = false;
+        };
 
         function renderAccount() {
             renderDevices();

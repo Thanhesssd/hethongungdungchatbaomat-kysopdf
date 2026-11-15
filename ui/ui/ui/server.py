@@ -144,6 +144,7 @@ class Store:
         self.devices = {}  # mã phiên (đã băm) -> thiết bị: tên, trình duyệt, IP, lúc đăng nhập, lần hoạt động cuối
         self.fails = {}
         self.signups = {}
+        self.namechecks = {}
         self.invites = {}  # ID tài khoản -> các lần gửi lời mời trong giờ qua
         self.signals = {}  # ID tài khoản -> tín hiệu cuộc gọi đang chờ (offer/answer/ICE/kết thúc), không lưu xuống đĩa
         self.sigseq = 0
@@ -276,6 +277,20 @@ def clean_name(name):
     return unicodedata.normalize("NFC", " ".join(name.split()))
 
 
+def name_problem(store, name):
+    """Lý do tên không dùng được để đăng ký (None nếu dùng được). Mỗi tên chỉ một tài khoản:
+    không phân biệt hoa/thường, khoảng trắng thừa, cách gõ dấu (NFC/NFD), và không trùng tên viết không dấu
+    ("Nguyen Van An" trùng "Nguyễn Văn An") vì đăng nhập bằng tên không dấu sẽ không biết là ai."""
+    if not 2 <= len(name) <= 60:
+        return "Tên tài khoản cần từ 2 đến 60 ký tự"
+    if name.lstrip("#").isdigit():
+        return "Tên tài khoản không được chỉ gồm chữ số (dễ nhầm với mã số tài khoản)"
+    key = name.lower()
+    if any(u["name"].lower() == key or handle_of(u["name"]) == handle_of(key) for u in store.users.values()):
+        return "Tài khoản này đã tồn tại (đã có người đăng ký). Xin bạn tạo tài khoản với tên khác"
+    return None
+
+
 def pair(a, b):
     return (a, b) if a < b else (b, a)
 
@@ -387,6 +402,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.handle_users(parse_qs(url.query))
         if url.path == "/api/devices":
             return self.handle_devices()
+        if url.path == "/api/name-check":
+            return self.handle_name_check(parse_qs(url.query))
         if url.path == "/api/avatar":
             return self.handle_avatar_get(parse_qs(url.query))
         if url.path == "/api/cover":
@@ -439,7 +456,7 @@ class Handler(BaseHTTPRequestHandler):
         routes = {"/api/register": self.handle_register, "/api/login": self.handle_login,
                   "/api/send": self.handle_send, "/api/group": self.handle_group,
                   "/api/group/add": self.handle_group_add, "/api/group/leave": self.handle_group_leave,
-                  "/api/friend": self.handle_friend, "/api/avatar": self.handle_avatar_put, "/api/cover": self.handle_cover_put, "/api/call": self.handle_call, "/api/devices/logout": self.handle_device_logout, "/api/friend/scan": self.handle_friend_scan,
+                  "/api/friend": self.handle_friend, "/api/password": self.handle_password, "/api/avatar": self.handle_avatar_put, "/api/cover": self.handle_cover_put, "/api/call": self.handle_call, "/api/devices/logout": self.handle_device_logout, "/api/friend/scan": self.handle_friend_scan,
                   "/api/friend/code": self.handle_friend_code, "/api/logout": self.handle_logout, "/api/ack": self.handle_ack,
                   "/api/pair/create": self.handle_pair_create, "/api/pair/claim": self.handle_pair_claim,
                   "/api/vault": self.handle_vault_put, "/api/media": self.handle_media_put}
@@ -467,6 +484,8 @@ class Handler(BaseHTTPRequestHandler):
         name = clean_name(body["name"])
         if not 2 <= len(name) <= 60:
             return self.send_json({"error": "Tên tài khoản cần từ 2 đến 60 ký tự"}, 400)
+        if name.lstrip("#").isdigit():
+            return self.send_json({"error": "Tên tài khoản không được chỉ gồm chữ số (dễ nhầm với mã số tài khoản)"}, 400)
         if not re.fullmatch(r"[0-9a-f]{64}", body["passHash"]):
             return self.send_json({"error": "Mật khẩu không hợp lệ"}, 400)
         with self.store.cond:
@@ -475,8 +494,9 @@ class Handler(BaseHTTPRequestHandler):
             if len(recent) >= MAX_SIGNUPS_PER_HOUR:
                 return self.send_json({"error": "Địa chỉ này đã tạo nhiều tài khoản. Hãy thử lại sau"}, 429)
             self.store.signups[ip] = recent + [now]
-            if self.store.find_user(name):
-                return self.send_json({"error": "Tên này đã có tài khoản. Hãy đăng nhập hoặc chọn tên khác"}, 409)
+            problem = name_problem(self.store, name)
+            if problem:
+                return self.send_json({"error": problem}, 409)
             salt = secrets.token_hex(16)
             uid = max(self.store.users, default=1000) + 1
             user = {"id": uid, "name": name, "salt": salt, "hash": hash_password(body["passHash"], salt),
@@ -484,6 +504,43 @@ class Handler(BaseHTTPRequestHandler):
             self.store.users[uid] = user
             self.store.bump()
         self.session(user)
+
+    def handle_password(self, body):
+        """Đổi mật khẩu: phải nhập đúng mật khẩu cũ. Khóa riêng được mã hóa lại bằng mật khẩu mới ngay trên máy người dùng.
+        Các thiết bị khác đang đăng nhập bị đăng xuất để phải đăng nhập lại bằng mật khẩu mới."""
+        uid = self.current_user()
+        if not uid:
+            return self.send_json({"error": "Phiên đăng nhập đã hết hạn"}, 401)
+        if not (re.fullmatch(r"[0-9a-f]{64}", body.get("oldHash", "")) and re.fullmatch(r"[0-9a-f]{64}", body.get("newHash", ""))):
+            return self.send_json({"error": "Mật khẩu không hợp lệ"}, 400)
+        priv = body.get("priv")
+        if not (isinstance(priv, dict) and isinstance(priv.get("iv"), str) and isinstance(priv.get("ct"), str)):
+            return self.send_json({"error": "Dữ liệu khóa không hợp lệ"}, 400)
+        mine = hashlib.sha256(self.headers.get("X-Token", "").encode()).hexdigest()
+        with self.store.cond:
+            user = self.store.users[uid]
+            if not hmac.compare_digest(user["hash"], hash_password(body["oldHash"], user["salt"])):
+                return self.send_json({"error": "Mật khẩu hiện tại chưa đúng"}, 403)
+            user["salt"] = secrets.token_hex(16)
+            user["hash"] = hash_password(body["newHash"], user["salt"])
+            user["priv"] = priv
+            others = [k for k, (u, _) in self.store.sessions.items() if u == uid and k != mine]
+            for k in others:
+                self.store.sessions.pop(k, None)
+                self.store.devices.pop(k, None)
+            self.store.save()
+        self.send_json({"ok": True, "loggedOut": len(others)})
+
+    def handle_name_check(self, query):
+        """Kiểm tra tên khi đang gõ ở màn hình đăng ký. Giới hạn số lần theo địa chỉ để không dò được danh sách tên."""
+        ip, now = self.client_ip(), time.time()
+        with self.store.cond:
+            recent = [t for t in self.store.namechecks.get(ip, []) if now - t < 60]
+            if len(recent) >= 40:
+                return self.send_json({"error": "Thử lại sau ít phút"}, 429)
+            self.store.namechecks[ip] = recent + [now]
+            problem = name_problem(self.store, clean_name(query.get("name", [""])[0]))
+        self.send_json({"ok": problem is None, "reason": problem})
 
     def handle_login(self, body):
         store = self.store
@@ -498,7 +555,9 @@ class Handler(BaseHTTPRequestHandler):
             count += 1
             with store.cond:
                 store.fails[key] = (0, time.time() + LOCK_SECONDS) if count >= MAX_FAILS else (count, 0)
-            return self.send_json({"error": "Sai tên tài khoản hoặc mật khẩu"}, 401)
+            left = MAX_FAILS - count
+            return self.send_json({"error": "Sai mật khẩu (hoặc sai tên tài khoản). Hãy nhập lại đúng mật khẩu"
+                                   + (f" — còn {left} lần thử" if 0 < left < MAX_FAILS else "")}, 401)
         with store.cond:
             store.fails.pop(key, None)
         self.session(user)
