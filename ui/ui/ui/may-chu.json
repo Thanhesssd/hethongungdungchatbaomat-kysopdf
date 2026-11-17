@@ -1,9 +1,7 @@
 {
- "id": "8608170deb95bca4",
- "public": "https://colin-anything-delivered-adaptor.trycloudflare.com",
+ "id": null,
+ "public": "https://fun-joshua-sql-automatically.trycloudflare.com",
  "fixed": false,
- "lan": [
-  "192.168.8.106:8443"
- ],
- "at": 1794758424
+ "lan": [],
+ "at": 1794903843
 }
