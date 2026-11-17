@@ -1,9 +1,8 @@
 {
  "id": "8608170deb95bca4",
  "public": "https://colin-anything-delivered-adaptor.trycloudflare.com",
+ "fixed": false,
  "lan": [
-  "192.168.156.1:8443",
-  "192.168.205.1:8443",
   "192.168.8.106:8443"
  ],
  "at": 1794758424

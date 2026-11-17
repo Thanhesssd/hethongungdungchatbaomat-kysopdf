@@ -1,7 +1,9 @@
 """Chia sẻ máy chủ LAN Chat ra Internet bằng Cloudflare Tunnel.
 
-Không có tên miền: tạo link tạm xxxx.trycloudflare.com (đổi mỗi lần chạy).
-Có tên miền đã cấu hình Named Tunnel: đặt LANCHAT_TUNNEL=<tên đường hầm> và LANCHAT_PUBLIC_URL=https://<tên miền>.
+Không có tên miền: tạo link tạm xxxx.trycloudflare.com (đổi mỗi lần chạy, chết khi laptop tắt hoặc ngủ).
+Có tên miền đã cấu hình Named Tunnel (xem dia-chi-co-dinh.bat): đặt LANCHAT_TUNNEL=<tên đường hầm> và
+LANCHAT_PUBLIC_URL=https://<tên miền>. Địa chỉ cố định được ghi vào may-chu.json một lần, không cần đẩy lại
+lên GitHub mỗi lần bật máy; mã QR đã gửi không bị hết hạn.
 Link được ghi vào data/public_url.txt; máy chủ đưa nó vào mã QR để thiết bị dùng 4G/5G kết nối được.
 """
 import os
@@ -19,7 +21,7 @@ LOCAL_PORT = int(os.environ.get("LANCHAT_LOCAL_PORT", 8000))
 _last_url = {"v": None}
 
 
-def write_url(url):
+def write_url(url, fixed=False):
     if url == _last_url["v"]:
         return
     _last_url["v"] = url
@@ -28,10 +30,10 @@ def write_url(url):
         f.write(url)
     print(f"\nĐịa chỉ Internet của máy chủ: {url}")
     print("Đã đưa vào mã QR mời và mã QR kết bạn. Giữ cửa sổ này mở trong lúc dùng.\n", flush=True)
-    publish_directory(url)
+    publish_directory(url, fixed)
 
 
-def publish_directory(public):
+def publish_directory(public, fixed=False):
     """Ghi địa chỉ hiện tại vào may-chu.json rồi đẩy lên GitHub, để app bản GitHub Pages tự kết nối máy chủ này
     trên mọi thiết bị (Wi-Fi, 4G/5G) mà không cần gõ địa chỉ. Tắt bằng biến môi trường LANCHAT_KHONG_DAY_GITHUB=1."""
     import json
@@ -44,7 +46,8 @@ def publish_directory(public):
             health = json.load(r)
     except Exception:
         health = {}
-    data = {"id": health.get("id"), "public": public, "lan": health.get("lan", []), "at": int(time.time())}
+    # fixed: địa chỉ cố định (tên miền riêng) hay link tạm. App báo "có thể đã hết hạn" khi link tạm cũ quá 24 giờ.
+    data = {"id": health.get("id"), "public": public, "fixed": bool(fixed), "lan": health.get("lan", []), "at": int(time.time())}
     path = os.path.join(BASE_DIR, "may-chu.json")
     # Giữ địa chỉ máy chủ đám mây (nếu đã có): app GitHub ưu tiên máy chủ đó vì nó luôn bật
     try:
@@ -53,7 +56,10 @@ def publish_directory(public):
         for k in ("cloud", "cloudId"):
             if old.get(k):
                 data[k] = old[k]
-        if all(old.get(k) == data.get(k) for k in ("id", "public", "lan")):
+        # Địa chỉ cố định: chỉ cần ghi một lần. IP mạng LAN đổi cũng không cần đẩy lại, vì app hỏi máy chủ
+        # qua địa chỉ cố định là biết IP mới. Link tạm thì đổi mỗi lần nên phải cập nhật.
+        same = ("id", "public", "fixed") if fixed else ("id", "public", "fixed", "lan")
+        if all(old.get(k) == data.get(k) for k in same):
             return print("Địa chỉ trên GitHub đã đúng, không cần cập nhật.", flush=True)
     except (OSError, ValueError):
         pass
@@ -87,7 +93,8 @@ def main():
         sys.exit(1)
     tunnel, fixed = os.environ.get("LANCHAT_TUNNEL"), os.environ.get("LANCHAT_PUBLIC_URL")
     if tunnel and fixed:
-        write_url(fixed.rstrip("/"))
+        print(f"Đang chạy đường hầm cố định \"{tunnel}\" -> {fixed.rstrip('/')}", flush=True)
+        write_url(fixed.rstrip("/"), fixed=True)
         cmd = [exe, "tunnel", "run", "--url", f"http://localhost:{LOCAL_PORT}", tunnel]
     else:
         print("Đang tạo link tạm qua Cloudflare (đổi mỗi lần chạy lại)...", flush=True)

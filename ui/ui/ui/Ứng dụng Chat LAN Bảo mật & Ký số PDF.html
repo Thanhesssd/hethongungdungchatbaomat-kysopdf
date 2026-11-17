@@ -247,6 +247,21 @@
         .demo-note { margin: .6rem auto 0; max-width: 92%; font-size: .78rem; text-align: center; color: var(--amber); background: var(--panel); border: 1px dashed var(--amber); border-radius: 10px; padding: .45rem .7rem; }
         .demo-bar { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap; padding: .55rem 1.4rem; background: var(--panel-2); border-bottom: 1px solid var(--border); color: var(--amber); font-size: .84rem; font-weight: 600; }
         .demo-bar span { flex: 1; min-width: 200px; }
+        .offline-bar { position: fixed; top: 0; left: 0; right: 0; z-index: 60; display: flex; align-items: center; justify-content: center; gap: .6rem; flex-wrap: wrap; padding: .4rem 1rem; background: #ea580c; color: #fff; font-size: .84rem; font-weight: 600; box-shadow: 0 2px 8px rgba(0, 0, 0, .15); }
+        .offline-bar .btn { background: rgba(255, 255, 255, .18); color: #fff; border-color: rgba(255, 255, 255, .4); }
+        body.has-offline-bar { padding-top: 2.4rem; }
+        .no-server { margin-top: .8rem; padding: .7rem .8rem; border-radius: 10px; border: 1px dashed var(--amber); color: var(--amber); font-size: .82rem; font-weight: 600; }
+        .no-server p { margin: 0 0 .5rem; }
+        .row-btns { display: flex; gap: .4rem; flex-wrap: wrap; }
+        .cc-steps { list-style: none; padding: 0; margin: .4rem 0; display: grid; gap: .45rem; }
+        .cc-steps li { display: flex; gap: .6rem; padding: .55rem .7rem; border-radius: 10px; background: var(--panel-2); border: 1px solid var(--border); font-size: .82rem; }
+        .cc-steps li > i { font-style: normal; flex: none; width: 1.4rem; text-align: center; }
+        .cc-steps li.ok { border-color: color-mix(in srgb, var(--green) 35%, var(--border)); }
+        .cc-steps li.bad { border-color: color-mix(in srgb, var(--red) 45%, var(--border)); background: var(--red-soft); }
+        .cc-steps li.warn { border-color: color-mix(in srgb, var(--amber) 45%, var(--border)); }
+        .cc-steps li.skip { opacity: .55; }
+        .cc-steps .ips { margin: .3rem 0 0; padding: 0; list-style: none; font-family: 'JetBrains Mono', monospace; font-size: .76rem; }
+        .cc-steps .hint { margin-top: .35rem; font-weight: 400; }
         .is-mobile .desktop-only { display: none !important; }
         .check-row { display: flex; gap: .55rem; align-items: center; padding: .3rem 0; }
 
@@ -483,6 +498,12 @@
 
 <body>
 
+    <!-- Đăng nhập bằng dữ liệu đã lưu khi chưa tới được máy chủ: chỉ xem, tin mới chờ gửi -->
+    <div class="offline-bar hidden" id="offlineBar" role="status">
+        <span>📴 Ngoại tuyến · tin nhắn mới sẽ gửi khi kết nối lại máy chủ</span>
+        <button type="button" class="btn sm" data-conncheck>🩺 Kiểm tra kết nối</button>
+    </div>
+
     <!-- ===================== ĐĂNG NHẬP ===================== -->
     <section class="login" id="loginScreen">
         <div class="login-art">
@@ -531,6 +552,14 @@
                 </form>
                 <p class="muted" style="font-size:.84rem;margin-top:.8rem"><span id="switchText">Chưa có tài khoản?</span> <button type="button" class="link-btn" id="switchBtn">Đăng ký ngay</button></p>
                 <p class="muted" id="serverNote" style="font-size:.78rem;margin-top:.8rem">Đang dùng chế độ minh họa trên trình duyệt này. Chạy server.py để nhiều người dùng chung.</p>
+                <div class="no-server hidden" id="noServerBox" role="status">
+                    <p id="noServerText">Chưa kết nối máy chủ. Tài khoản tạo lúc này sẽ không nhắn tin và không đồng bộ được.</p>
+                    <div class="row-btns">
+                        <button type="button" class="btn sm primary" data-conncheck>🩺 Kiểm tra kết nối</button>
+                        <button type="button" class="btn sm" data-connect>🔌 Kết nối máy chủ LAN</button>
+                    </div>
+                </div>
+                <button type="button" class="link-btn" id="connCheckLink" data-conncheck style="font-size:.8rem">🩺 Kiểm tra kết nối</button>
                 <button type="button" class="link-btn hidden" id="caLink" style="font-size:.84rem">🛡️ Cài chứng thư gốc (Root CA) để hết cảnh báo Chrome</button>
                 <div class="reg-result hidden" id="regResult" role="status" aria-live="polite"></div>
                 <div class="steps hidden" id="steps">
@@ -920,6 +949,10 @@
                         <div class="card-h"><h3>Thiết bị đã đăng nhập</h3><button class="btn sm danger" id="devOthers">Đăng xuất mọi thiết bị khác</button></div>
                         <div class="card-b"><p class="muted" style="font-size:.84rem">Các máy đang dùng tài khoản này. Máy bị mất hoặc không còn dùng: bấm Đăng xuất để máy đó không vào được nữa.</p><div id="devList">Đang tải…</div></div>
                     </div>
+                    <div class="card" style="grid-column:1/-1">
+                        <div class="card-h"><h3>📡 Kết nối máy chủ</h3><button class="btn sm primary" type="button" data-conncheck>🩺 Kiểm tra kết nối</button></div>
+                        <div class="card-b"><p class="muted">Kiểm tra từng bước: mạng của thiết bị, địa chỉ máy chủ, IP mạng LAN, chứng chỉ và link Internet. Chạy khoảng 10 giây, không gửi mật khẩu hay dữ liệu cá nhân đi đâu.</p></div>
+                    </div>
                     <div class="card hidden" id="caCard" style="grid-column:1/-1">
                         <div class="card-h"><h3>Chứng thư gốc (Root CA)</h3><button class="btn sm primary" id="caOpen">🛡️ Xem và cài đặt</button></div>
                         <div class="card-b"><p class="muted">Cài một lần trên mỗi máy để trình duyệt tin kết nối HTTPS trong mạng nội bộ và không còn cảnh báo NET::ERR_CERT_AUTHORITY_INVALID.</p></div>
@@ -1036,6 +1069,22 @@
             $('#formErr').textContent = msg;
             $('#formErr').classList.toggle('hidden', !msg);
         }
+        // Bản GitHub Pages chỉ tạo tài khoản khi máy chủ đã trả lời api/health. Không còn tài khoản "giả" chỉ nằm
+        // trong trình duyệt: tài khoản đó không nhắn tin được với bạn bè và không đồng bộ giữa các thiết bị.
+        const ON_PAGES = /\.github\.io$/.test(location.hostname);
+        const serverLocked = () => ON_PAGES && !state.server;
+        const NO_SERVER_REG = 'Chưa kết nối máy chủ. Tài khoản tạo lúc này sẽ không nhắn tin và không đồng bộ được.';
+        const NO_SERVER_LOGIN = `Chưa kết nối máy chủ. Chỉ mở được tài khoản máy này từng đăng nhập trên máy chủ (chế độ chỉ xem), hoặc tài khoản mẫu "${SAMPLE_USER}" để xem bản minh họa.`;
+        function syncServerLock() {
+            const locked = serverLocked();
+            $('#noServerBox').classList.toggle('hidden', !locked);
+            $('#noServerText').textContent = mode === 'register' ? NO_SERVER_REG : NO_SERVER_LOGIN;
+            $('#loginBtn').disabled = locked && mode === 'register';
+            $('#loginBtn').title = locked && mode === 'register' ? 'Cần kết nối máy chủ trước khi đăng ký' : '';
+        }
+        const noServerHelp = () => `<div class="row-btns" style="justify-content:center;margin:.5rem 0">
+            <button type="button" class="btn sm primary" data-conncheck>🩺 Kiểm tra kết nối</button>
+            <button type="button" class="btn sm" data-connect>🔌 Kết nối máy chủ LAN</button></div>`;
         function setMode(next) {
             mode = next;
             const reg = mode === 'register';
@@ -1049,6 +1098,7 @@
             $('#switchBtn').textContent = reg ? 'Đăng nhập' : 'Đăng ký ngay';
             formErr('');
             checkNameSoon();
+            syncServerLock();
         }
         // Đăng ký: kiểm tra tên ngay khi gõ (máy chủ trả lời tên đã có người dùng chưa)
         let nameTimer = null, nameSeq = 0;
@@ -1109,6 +1159,7 @@
                 $('.login-card').classList.remove('result');
                 box.classList.add('hidden');
                 $('#loginBtn').disabled = false;
+                syncServerLock();
                 $(retryField || '#fName').focus();
             };
         }
@@ -1278,6 +1329,28 @@
                 if ($('#fPass').value.length < 4) return regResult(false, 'Mật khẩu cần ít nhất 4 ký tự.', '#fPass');
                 if ($('#fPass').value !== $('#fPass2').value) return regResult(false, 'Hai lần nhập mật khẩu chưa giống nhau.', '#fPass2');
             }
+            // Bản GitHub chưa kết nối máy chủ: thử kết nối lại một lần; không được thì chỉ mở dữ liệu đã lưu
+            // (chế độ chỉ xem) của tài khoản từng đăng nhập trên máy chủ. Không bao giờ tạo tài khoản cục bộ.
+            // Riêng tài khoản mẫu vẫn vào bản minh họa.
+            if (serverLocked() && !(mode === 'login' && name === SAMPLE_USER)) {
+                $('#loginBtn').disabled = true;
+                toast('📡 Đang kiểm tra kết nối máy chủ…');
+                dirAt = 0;
+                await refreshDirectory().catch(() => false);
+                const best = loadRoutes() ? await pickServer().catch(() => null) : null;
+                $('#loginBtn').disabled = false;
+                if (best) {
+                    rememberRoutes(best.health);
+                    toast(`🟢 Đã kết nối máy chủ. Hãy ${mode === 'register' ? 'đăng ký' : 'đăng nhập'} lại`);
+                    setTimeout(() => location.reload(), 900);
+                    return;
+                }
+                if (mode === 'login' && await offlineServerLogin(name)) return;
+                syncServerLock();
+                return regResult(false, mode === 'register' ? NO_SERVER_REG
+                    : 'Chưa kết nối máy chủ nên chưa kiểm tra được mật khẩu. Máy này cũng chưa có dữ liệu đã lưu của tài khoản này (hoặc mật khẩu chưa đúng).',
+                    mode === 'register' ? '#fName' : '#fPass', noServerHelp());
+            }
             // Từng dùng máy chủ mà giờ chưa kết nối được: không cho vào bản minh họa trống với cùng tên,
             // vì tài khoản, bạn bè và tin nhắn thật đang nằm trên máy chủ
             if (!state.server && loadRoutes() && name !== SAMPLE_USER && !state.forceLocal) {
@@ -1320,7 +1393,7 @@
                     return failLocal('Chưa kết nối được máy chủ nên chưa kiểm tra được mật khẩu của tài khoản này. App đang tự tìm máy chủ, hãy thử lại sau ít phút. Muốn dùng ngay trên máy này thì chọn Đăng ký');
                 if (mode === 'login' && !knownLocal && name !== SAMPLE_USER)
                     return failLocal('Không tìm thấy tài khoản này trên máy này. Hãy kiểm tra lại tên, hoặc chọn Đăng ký để tạo tài khoản mới');
-                if (!knownLocal) await setLocalPassword(name, state.passHash);
+                if (!knownLocal && !ON_PAGES) await setLocalPassword(name, state.passHash);
             }
             state.user = name;
             state.isNew = mode === 'register';
@@ -1338,6 +1411,7 @@
                     if (err instanceof TypeError || err.name === 'AbortError') {
                         $('#steps').classList.add('hidden'); $('#loginBtn').disabled = false;
                         if (mode === 'login' && await offlineServerLogin(name)) return;
+                        if (ON_PAGES) return regResult(false, 'Mất kết nối máy chủ giữa chừng nên chưa ' + (mode === 'register' ? 'tạo được tài khoản' : 'đăng nhập được') + '. Không có tài khoản nào được tạo trên máy này.', '#fName', noServerHelp());
                         Object.assign(state, { server: false, apiBase: '', token: null, forceLocal: true });
                         $('#loginForm').requestSubmit();
                         return;
@@ -1359,9 +1433,12 @@
                         });
                         return;
                     }
-                    regResult(false, reason, /đã tồn tại|đã có tài khoản|Tên tài khoản/.test(err.message) ? '#fName' : '#fPass');
+                    const taken = /đã tồn tại|đã có tài khoản|Tên tài khoản/.test(err.message);
+                    regResult(false, reason + (state.migrating && taken ? ' Tên này đã có người dùng trên máy chủ, hãy chọn tên khác để đưa tài khoản lên.' : ''), taken ? '#fName' : '#fPass');
                     return;
                 }
+                // Đã đưa tài khoản cục bộ cũ lên máy chủ (cùng tên hoặc tên mới): bỏ bản cục bộ
+                if (state.migrating && mode === 'register') { removeLocalAccount(state.migrating); state.migrating = null; }
             }
             if (mode === 'register') await regResult(true, state.server
                 ? 'Bạn có thể đăng nhập bằng tài khoản này trên mọi máy trong mạng.'
@@ -1369,7 +1446,10 @@
                 : 'Đây là chế độ minh họa: tài khoản chỉ có trên trình duyệt này.');
             if ($('#fRemember').checked) await saveSession(); else await clearSession();
             await enterApp();
-            if (!state.server) $('#demoBar').classList.remove('hidden');
+            if (!state.server) {
+                $('#demoBar').classList.remove('hidden');
+                netStatus('busy', name === SAMPLE_USER ? 'Bản minh họa · tài khoản mẫu, chưa kết nối máy chủ' : 'Bản minh họa · chưa kết nối máy chủ', true);
+            }
             if (mode === 'login') toast(`✅ Đăng nhập thành công. Chào mừng ${state.user}!`);
             if (!state.server && name !== SAMPLE_USER) {
                 state.forceLocal = true;
@@ -1950,7 +2030,8 @@
             const old = loadRoutes() || {};
             const same = !old.id || old.id === health.id;
             const lan = [...new Set([...(health.lan || []), ...(same ? old.lan || [] : [])])].slice(0, 8);
-            saveRoutes({ id: health.id, lan, public: health.public || (same ? old.public : null) || null });
+            const pub = health.public || (same ? old.public : null) || null;
+            saveRoutes({ id: health.id, lan, public: pub, fixed: health.public ? !!health.fixed : !!(same && pub && old.fixed) });
         }
         function addRoutesFromLink(hosts) {
             const r = loadRoutes() || {};
@@ -1979,12 +2060,12 @@
             if (dir.cloud) {
                 const cur = loadRoutes();
                 if (!cur || cur.public !== dir.cloud || (dir.cloudId && cur.id && cur.id !== dir.cloudId))
-                    saveRoutes({ id: dir.cloudId || null, lan: [], public: dir.cloud });
+                    saveRoutes({ id: dir.cloudId || null, lan: [], public: dir.cloud, fixed: true });
                 return true;
             }
             const old = loadRoutes() || {};
             const lan = [...new Set([...(dir.lan || []), ...(old.lan || [])])].slice(0, 8);
-            saveRoutes({ id: dir.id || old.id, lan, public: dir.public || null });
+            saveRoutes({ id: dir.id || old.id, lan, public: dir.public || null, fixed: !!(dir.public && dir.fixed) });
             return true;
         }
 
@@ -2112,7 +2193,49 @@
                 setMode('register');
                 toast('👋 Bạn được mời vào máy chủ này. Hãy tạo tài khoản để kết bạn và trò chuyện');
             }
+            if (serverLocked() && !health) $('#serverNote').textContent = savedServer()
+                ? `⚠ Chưa tới được máy chủ ${savedServer()}. App sẽ tự thử lại; bấm Kiểm tra kết nối để biết lỗi ở bước nào.`
+                : '⚠ Chưa có địa chỉ máy chủ. Bấm Kiểm tra kết nối, hoặc Kết nối máy chủ LAN để nhập IP.';
+            syncServerLock();
+            if (state.server && $('#appScreen').classList.contains('hidden')) offerLocalMigration();
         })();
+
+        // Dọn tài khoản cục bộ cũ (tạo khi chưa có máy chủ): đưa lên máy chủ bằng cách đăng ký lại cùng tên, hoặc xóa.
+        // Máy này chỉ lưu dấu kiểm tra mật khẩu, không lưu mật khẩu, nên cần nhập lại mật khẩu khi đưa lên.
+        function offerLocalMigration() {
+            const names = Object.keys(localAccounts()).filter(n => n !== localKey(SAMPLE_USER));
+            if (!names.length) return;
+            try { if (sessionStorage.getItem('lanchat-migrate-later')) return; } catch (e) { }
+            modal('Tài khoản chưa lên máy chủ', `
+                <p style="font-size:.88rem">Thiết bị này có tài khoản chưa lên máy chủ. Đưa lên máy chủ hay xóa?</p>
+                <p class="muted" style="font-size:.8rem">Tài khoản chỉ nằm trên trình duyệt này thì không nhắn tin được với bạn bè và không đồng bộ sang máy khác.</p>
+                <ul class="cc-steps">${names.map(n => `<li data-local="${esc(n)}"><i>👤</i><div style="flex:1"><b>${esc(n)}</b></div>
+                    <button class="btn sm primary" type="button" data-mig="up">Đưa lên</button><button class="btn sm danger" type="button" data-mig="del">Xóa</button></li>`).join('')}</ul>`,
+                `<button class="btn" id="migLater">Để sau</button>`);
+            $('#migLater').onclick = () => { try { sessionStorage.setItem('lanchat-migrate-later', '1'); } catch (e) { } closeModal(); };
+            $$('[data-mig]').forEach(b => b.onclick = () => {
+                const n = b.closest('[data-local]').dataset.local;
+                if (b.dataset.mig === 'del') {
+                    if (!confirm(`Xóa tài khoản "${n}" khỏi trình duyệt này? Tin nhắn chỉ lưu trên máy này của tài khoản đó sẽ mất.`)) return;
+                    removeLocalAccount(n);
+                    toast(`Đã xóa tài khoản cục bộ "${n}"`);
+                    return Object.keys(localAccounts()).length ? offerLocalMigration() : closeModal();
+                }
+                closeModal();
+                setMode('register');
+                $('#fName').value = n;
+                $('#fPass').value = $('#fPass2').value = '';
+                updateHash(); checkNameSoon();
+                state.migrating = n;
+                $('#fPass').focus();
+                toast('Nhập mật khẩu cho tài khoản này rồi bấm Đăng ký tài khoản. Tên đã có người dùng thì hãy chọn tên khác');
+            });
+        }
+        function removeLocalAccount(n) {
+            const all = localAccounts();
+            delete all[localKey(n)];
+            try { Object.keys(all).length ? localStorage.setItem('lanchat-local-accounts', JSON.stringify(all)) : localStorage.removeItem('lanchat-local-accounts'); } catch (e) { }
+        }
 
         async function publishKeys() {
             const spki = await crypto.subtle.exportKey('spki', keyPair.publicKey);
@@ -2184,7 +2307,7 @@
                 flushOutbox();
                 if (!state.vaultReady && state.token) vaultLoad();
                 else if (state.token) vaultSave(); // gửi nốt thay đổi làm lúc mất mạng
-                if (state.offline) { state.offline = false; toast('🟢 Đã kết nối lại máy chủ, dữ liệu đã đồng bộ'); }
+                if (state.offline) { state.offline = false; updateOfflineBar(); toast('🟢 Đã kết nối lại máy chủ, dữ liệu đã đồng bộ'); }
             }
         }
 
@@ -2477,7 +2600,9 @@
             const r = loadRoutes() || {};
             const pubHost = r.public ? r.public.replace(/^https:\/\//, '').replace(/\/$/, '') : '';
             const direct = (r.public ? r.public.replace(/\/?$/, '/') : `https://${host}/`) + '#join';
-            const viaPages = `${PAGES_APP}#server=${[ip, ...(r.lan || []).filter(x => x !== host && !x.startsWith('127.')), pubHost].filter(Boolean).join(',')}`;
+            // Địa chỉ cố định đứng đầu: link mời và mã QR đã gửi không bị hết hạn, mạng nào cũng mở được
+            const lanHosts = [ip, ...(r.lan || []).filter(x => x !== host && !x.startsWith('127.'))];
+            const viaPages = `${PAGES_APP}#server=${(r.fixed ? [pubHost, ...lanHosts] : [...lanHosts, pubHost]).filter(Boolean).join(',')}`;
             const qr = qrcode(0, 'M');
             qr.addData(direct);
             qr.make();
@@ -2492,7 +2617,7 @@
                 </ol>
                 <div class="field" style="margin-top:.6rem"><label>Link mời qua GitHub (gửi qua Zalo, Messenger…)</label>
                     <input class="input mono" id="inviteLink" readonly value="${esc(viaPages)}" style="font-size:.72rem"></div>
-                ${pubHost ? `<p style="font-size:.8rem">🌐 Địa chỉ Internet: <b class="mono">${esc(pubHost)}</b>. Mã QR và link mời dùng được cả khi máy B dùng 4G/5G; cùng Wi‑Fi thì app tự đi đường nội bộ.</p>`
+                ${pubHost ? `<p style="font-size:.8rem">🌐 Địa chỉ Internet${r.fixed ? ' cố định' : ' (link tạm, đổi mỗi lần chạy chia-se-internet.bat)'}: <b class="mono">${esc(pubHost)}</b>. Mã QR và link mời dùng được cả khi máy B dùng 4G/5G; cùng Wi‑Fi thì app tự đi đường nội bộ.</p>`
                     : '<p class="muted" style="font-size:.76rem">Địa chỉ này chỉ dùng được trong cùng Wi‑Fi. Để máy dùng 4G/5G kết nối được, chạy chia-se-internet.bat trên máy này rồi mở lại hộp này.</p>'}`,
                 `<button class="btn" id="copyIp">Sao chép IP</button><button class="btn" id="copyInvite">Sao chép link mời</button><button class="btn primary" data-close>Xong</button>`);
             const copy = async (text, done) => {
@@ -2507,7 +2632,8 @@
         // Link gửi qua tin nhắn: dùng trang GitHub kèm danh sách địa chỉ máy chủ, mở được ở mọi mạng
         function friendLinkForSharing() {
             const r = loadRoutes() || {};
-            const hosts = [...(r.lan || []).filter(x => !x.startsWith('127.')), r.public ? new URL(r.public).host : ''].filter(Boolean).join(',');
+            const pub = r.public ? new URL(r.public).host : '', lan = (r.lan || []).filter(x => !x.startsWith('127.'));
+            const hosts = (r.fixed ? [pub, ...lan] : [...lan, pub]).filter(Boolean).join(',');
             return `${PAGES_APP}#server=${hosts}&add=${state.code}`;
         }
 
@@ -2518,7 +2644,7 @@
             const lan = (r.lan || []).filter(x => !x.startsWith('127.')).join(',');
             // Có địa chỉ Internet thì dùng làm đường chính để quét bằng camera ở mạng nào cũng mở được
             const all = [...new Set([host, ...lan.split(',')].filter(x => x && !x.startsWith('localhost') && !/\.github\.io$/.test(x)))];
-            if (r.public) all.push(new URL(r.public).host);
+            if (r.public) all[r.fixed ? 'unshift' : 'push'](new URL(r.public).host);
             return `${PAGES_APP}#server=${all.join(',')}&add=${state.code}${r.id ? '&srv=' + r.id : ''}`;
         }
 
@@ -2946,6 +3072,8 @@
                 try { rec = await sessionStore('readonly', s => s.get('server:' + rid)); } catch (e) { }
             }
             if (!rec) return;
+            // Bản GitHub: không tự mở lại phiên của tài khoản cục bộ cũ (không có trên máy chủ), trừ tài khoản mẫu
+            if (ON_PAGES && !rec.server && !state.server && rec.user !== SAMPLE_USER) return;
             let offline = false;
             if (rec.server && !state.server && savedServer()) {
                 offline = true;
@@ -3031,7 +3159,15 @@
             $('#netDot').className = 'dot ' + (kind === 'on' ? 'on' : kind === 'busy' ? 'busy' : 'down');
             $('#netLabel').textContent = text;
             $('#reconnectBtn').classList.toggle('hidden', !showRetry);
+            updateOfflineBar();
         }
+        // Thanh cam cố định khi đang mở dữ liệu đã lưu mà chưa đăng nhập lại được máy chủ; tự ẩn khi đăng nhập lại được
+        function updateOfflineBar() {
+            const on = !!(state.offline && state.user && !$('#appScreen').classList.contains('hidden'));
+            $('#offlineBar').classList.toggle('hidden', !on);
+            document.body.classList.toggle('has-offline-bar', on);
+        }
+        setInterval(updateOfflineBar, 2000);
 
         // Bản minh họa có máy chủ đã lưu nhưng chưa kết nối được: thử lại định kỳ và khi có mạng
         function watchSavedServer(base) {
@@ -3161,6 +3297,183 @@
             $('#srvGo').click();
         }
 
+        // ============ Kiểm tra kết nối: 5 bước, dừng ở bước đầu tiên bị lỗi và chỉ cách sửa ============
+        // Chỉ gọi may-chu.json và api/health (không gửi mật khẩu hay dữ liệu cá nhân). Chạy khoảng 10 giây.
+        const TEMP_LINK_MAX = 24 * 3600;  // link tạm trycloudflare cũ hơn 24 giờ thì có thể đã hết hạn
+        function agoText(sec) {
+            const m = Math.round(sec / 60);
+            return m < 2 ? 'vừa xong' : m < 60 ? `${m} phút trước` : m < 48 * 60 ? `${Math.round(m / 60)} giờ trước` : `${Math.round(m / 1440)} ngày trước`;
+        }
+        // Gọi api/health có đo giờ: lỗi ngay là có máy trả lời nhưng trình duyệt từ chối (chứng chỉ, quyền mạng cục bộ,
+        // máy chủ chưa bật); hết giờ là không tới được máy đó (khác mạng, Wi‑Fi cách ly, tường lửa)
+        async function checkHealth(base, ms) {
+            const ctl = new AbortController(), t0 = performance.now();
+            const timer = setTimeout(() => ctl.abort(), ms);
+            try {
+                const r = await fetch(base + 'api/health', { signal: ctl.signal, cache: 'no-store' });
+                const h = r.ok ? await r.json().catch(() => null) : null;
+                return h?.ok ? { ok: true, health: h, ms: Math.round(performance.now() - t0) } : { ok: false, kind: 'wrong' };
+            } catch (e) {
+                return { ok: false, kind: e.name === 'AbortError' ? 'timeout' : 'refused' };
+            } finally { clearTimeout(timer); }
+        }
+        async function loadDirectory() {
+            const ctl = new AbortController(), t = setTimeout(() => ctl.abort(), 4000);
+            try {
+                const r = await fetch('may-chu.json?t=' + Date.now(), { cache: 'no-store', signal: ctl.signal });
+                return r.ok ? await r.json() : null;
+            } catch (e) { return null; } finally { clearTimeout(t); }
+        }
+
+        let ccRun = 0;
+        async function connCheckModal() {
+            const run = ++ccRun, started = new Date();
+            const ua = navigator.userAgent, conn = navigator.connection;
+            const cellular = conn?.type === 'cellular';
+            const S = ['Thiết bị có mạng', 'Địa chỉ máy chủ', 'IP mạng LAN trả lời api/health', 'Chứng chỉ hay mạng', 'Link Internet (Cloudflare)']
+                .map(t => ({ t, st: 'wait', msg: '', html: '' }));
+            const ICON = { wait: '·', run: '⏳', ok: '✅', warn: '⚠️', bad: '❌', skip: '⏭' };
+            modal('🩺 Kiểm tra kết nối', `
+                <p class="muted" style="font-size:.8rem">Kiểm tra lần lượt 5 bước, khoảng 10 giây. Không gửi mật khẩu hay dữ liệu cá nhân đi đâu.</p>
+                <ul class="cc-steps" id="ccSteps"></ul>
+                <div id="ccVerdict"></div>`,
+                `<button class="btn" id="ccCopy" type="button" disabled>📋 Sao chép báo cáo</button><button class="btn" id="ccAgain" type="button" disabled>↻ Kiểm tra lại</button><button class="btn primary" data-close>Đóng</button>`);
+            const alive = () => run === ccRun && $('#ccSteps');
+            const paint = () => {
+                if (!alive()) return;
+                $('#ccSteps').innerHTML = S.map((s, i) => `<li class="${s.st}"><i>${ICON[s.st]}</i><div style="flex:1"><b>${i + 1}. ${esc(s.t)}</b>
+                    ${s.msg ? `<div>${esc(s.msg)}</div>` : ''}${s.html}</div></li>`).join('');
+            };
+            const set = (i, st, msg = '', html = '') => { Object.assign(S[i], { st, msg, html }); paint(); };
+            const skipFrom = (i, why) => { for (let k = i; k < S.length; k++) if (S[k].st === 'wait' || S[k].st === 'run') Object.assign(S[k], { st: 'skip', msg: why }); paint(); };
+            paint();
+            let verdict = '', okRoute = null;
+
+            // Bước 1: thiết bị có mạng
+            set(0, 'run');
+            if (!navigator.onLine) {
+                set(0, 'bad', 'Thiết bị chưa có mạng. Bật Wi‑Fi hoặc 4G/5G.');
+                skipFrom(1, 'Bỏ qua vì thiết bị chưa có mạng');
+                verdict = 'Dừng ở bước 1: thiết bị chưa có mạng.';
+            } else {
+                // effectiveType chỉ là mức tốc độ ('4g' không có nghĩa là đang dùng 4G), nên chỉ báo khi mạng chậm
+                set(0, 'ok', 'Có mạng' + (cellular ? ' · đang dùng 4G/5G' : conn?.type === 'wifi' ? ' · Wi‑Fi' : '') + (['slow-2g', '2g', '3g'].includes(conn?.effectiveType) ? ' · mạng chậm' : ''));
+
+                // Bước 2: địa chỉ máy chủ mới nhất (may-chu.json trên GitHub, hoặc chính máy chủ đang mở trang này)
+                set(1, 'run');
+                const routes = loadRoutes() || {};
+                let dir = ON_PAGES ? await loadDirectory() : null;
+                if (!ON_PAGES && location.protocol !== 'file:') {
+                    const self = await checkHealth('', 3000);
+                    if (self.ok) dir = { ...self.health, at: Math.floor(Date.now() / 1000), self: true };
+                }
+                const lan = [...new Set([...(dir?.cloud ? [] : dir?.lan || []), ...(routes.lan || [])])].filter(x => !x.startsWith('127.')).slice(0, 8);
+                const pub = dir?.cloud || dir?.public || routes.public || null;
+                const fixed = !!(dir?.cloud || (dir ? dir.fixed && dir.public === pub : routes.fixed));
+                const wantId = dir?.cloud ? dir.cloudId : dir?.id || routes.id || null;
+                const age = dir?.at ? Date.now() / 1000 - dir.at : null;
+                if (!lan.length && !pub) {
+                    set(1, 'bad', ON_PAGES ? 'Chưa có địa chỉ máy chủ. Máy chủ chưa từng công bố địa chỉ lên GitHub (chạy chia-se-internet.bat trên máy chủ), hoặc bấm Kết nối máy chủ LAN để nhập IP.' : 'Chưa có địa chỉ máy chủ.',
+                        `<div class="row-btns hint"><button type="button" class="btn sm" data-connect>🔌 Kết nối máy chủ LAN</button></div>`);
+                    skipFrom(2, 'Bỏ qua vì chưa có địa chỉ máy chủ');
+                    verdict = 'Dừng ở bước 2: chưa có địa chỉ máy chủ.';
+                } else {
+                    const src = dir?.self ? 'Đang mở trang từ chính máy chủ' : dir ? `may-chu.json cập nhật ${agoText(age)}` : 'Không tải được may-chu.json, dùng địa chỉ đã lưu trên máy này';
+                    const kind = pub ? (fixed ? 'địa chỉ Internet cố định' : 'link Internet tạm') : 'chưa có link Internet';
+                    const stale = dir && !dir.self && !fixed && age > TEMP_LINK_MAX;
+                    set(1, stale || !dir ? 'warn' : 'ok', `${src} · ${lan.length} IP mạng LAN · ${kind}` + (stale
+                        ? `. Địa chỉ máy chủ cập nhật từ ${agoText(age)}, máy chủ có thể đang tắt và link tạm có thể đã hết hạn.` : ''));
+
+                    // Bước 3 và 5 chạy song song để cả lần kiểm tra không quá ~10 giây
+                    set(2, 'run'); if (pub) set(4, 'run');
+                    const lanJob = cellular || !lan.length ? Promise.resolve(null)
+                        : Promise.all(lan.map(h => checkHealth(serverBase(h), 3000).then(r => ({ h, ...r }))));
+                    const pubJob = pub ? checkHealth(pub.replace(/\/?$/, '/'), 6000) : Promise.resolve(null);
+                    const [lanRes, pubRes] = await Promise.all([lanJob, pubJob]);
+                    if (!alive()) return;
+                    const sameSrv = r => r.ok && (!wantId || !r.health.id || r.health.id === wantId);
+
+                    // Bước 3: từng IP mạng LAN
+                    let lanOk = null;
+                    if (!lanRes) {
+                        set(2, 'skip', cellular ? 'Thiết bị đang dùng 4G/5G: chỉ dùng được link Internet, không dùng được IP mạng LAN.' : 'Máy chủ không công bố IP mạng LAN (máy chủ đám mây).');
+                        set(3, 'skip', 'Không có IP mạng LAN để kiểm tra');
+                    } else {
+                        lanOk = lanRes.find(sameSrv);
+                        const line = r => `<li>${sameSrv(r) ? '🟢' : r.ok ? '🟡' : '🔴'} ${esc(r.h)} — ${sameSrv(r) ? `trả lời (${r.ms} ms)` : r.ok ? 'trả lời nhưng là máy chủ khác' : r.kind === 'timeout' ? 'không tới được (hết 3 giây)' : r.kind === 'wrong' ? 'có máy trả lời nhưng không phải máy chủ LAN Chat' : 'bị từ chối ngay'}</li>`;
+                        set(2, lanOk ? 'ok' : 'warn', lanOk ? `Máy chủ trả lời qua ${lanOk.h}` : 'Không IP nào trả lời', `<ul class="ips">${lanRes.map(line).join('')}</ul>`);
+
+                        // Bước 4: IP không trả lời là do chứng chỉ hay do mạng
+                        if (lanOk) set(3, 'ok', 'Trình duyệt đã tin chứng chỉ, đường mạng LAN dùng được.');
+                        else {
+                            const refused = lanRes.filter(r => r.kind === 'refused'), timeout = lanRes.filter(r => r.kind === 'timeout');
+                            const tips = [];
+                            if (/Chrome\//.test(ua) && !/Edg\//.test(ua) && refused.length) tips.push('Chrome có thể đang chặn quyền mạng cục bộ: bấm biểu tượng ổ khóa bên trái thanh địa chỉ, mục Cài đặt trang web, cho phép <b>Mạng cục bộ</b> (Thiết bị trên mạng cục bộ), rồi tải lại trang.');
+                            if (timeout.length && !refused.length) tips.push('Wi‑Fi có thể đang cách ly các thiết bị (Wi‑Fi trường học, quán cà phê, Wi‑Fi khách): dùng điểm phát từ điện thoại cho cả hai máy, hoặc dùng link Internet.');
+                            if (timeout.length) tips.push('Kiểm tra thiết bị này và máy chủ dùng chung một Wi‑Fi, máy chủ đang bật và không ngủ. Tường lửa chặn cổng 8443: chạy cai-dat-may-chu.bat trên máy chủ.');
+                            if (conn && conn.type && conn.type !== 'wifi' && conn.type !== 'ethernet') tips.push('Thiết bị không dùng Wi‑Fi: chỉ dùng được link Internet, không dùng được IP mạng LAN.');
+                            const tipHtml = tips.length ? `<ul class="hint" style="margin:.35rem 0 0;padding-left:1.1rem">${tips.map(t => `<li>${t}</li>`).join('')}</ul>` : '';
+                            // Từ chối ngay có thể do chứng chỉ, quyền mạng cục bộ, hoặc máy chủ chưa bật chương trình (cổng đóng).
+                            // Link Internet cũng chết hoặc địa chỉ lâu không cập nhật thì nhiều khả năng máy chủ đang tắt.
+                            const down = (pub && !pubRes?.ok) || stale;
+                            if (refused.length) {
+                                const b = serverBase(refused[0].h);
+                                set(3, 'bad', (down ? `Link Internet cũng không trả lời nên có thể máy chủ đang tắt: bật chay-may-chu.bat trên máy chủ. Nếu máy chủ đang bật: ` : '')
+                                    + `${refused[0].h} từ chối kết nối ngay, thường do trình duyệt chưa tin chứng chỉ của máy chủ (hoặc chặn quyền mạng cục bộ). Mở địa chỉ máy chủ, chọn Nâng cao → Tiếp tục, hoặc cài chứng thư gốc một lần, rồi bấm Kiểm tra lại.`,
+                                    `<div class="row-btns hint"><a class="btn sm primary" href="${esc(b)}" target="_blank" rel="noopener">🔓 Mở và tin chứng chỉ</a><a class="btn sm" href="${esc(b)}#root-ca" target="_blank" rel="noopener">🛡️ Cài chứng thư gốc</a></div>${tipHtml}`);
+                            } else set(3, 'bad', timeout.length ? 'Do mạng: thiết bị này không tới được máy chủ qua mạng LAN.' : 'Có máy trả lời ở các IP này nhưng không phải máy chủ LAN Chat (IP cũ hoặc nhập nhầm).', tipHtml);
+                        }
+                    }
+
+                    // Bước 5: link Internet còn sống
+                    let pubOk = null;
+                    if (!pub) set(4, 'warn', 'Máy chủ chưa bật link Internet. Thiết bị dùng 4G/5G hoặc khác mạng sẽ không vào được. Người quản lý máy chủ chạy chia-se-internet.bat (muốn địa chỉ không đổi thì chạy dia-chi-co-dinh.bat một lần).');
+                    else if (sameSrv(pubRes)) { pubOk = pubRes; set(4, 'ok', `${fixed ? 'Địa chỉ cố định' : 'Link tạm'} ${new URL(pub).host} trả lời (${pubRes.ms} ms)` + (fixed ? '' : '. Link tạm đổi mỗi lần chạy lại chia-se-internet.bat.')); }
+                    else if (pubRes.ok) set(4, 'bad', `${new URL(pub).host} là một máy chủ khác, không phải máy chủ đang dùng.`);
+                    else set(4, 'bad', fixed
+                        ? `Địa chỉ cố định ${new URL(pub).host} không trả lời: máy chủ đang tắt hoặc ngủ, hoặc đường hầm chưa chạy. Người quản lý máy chủ cần chạy chia-se-internet.bat.`
+                        : 'Link Internet đã hết hạn. Người quản lý máy chủ cần chạy lại chia-se-internet.bat.');
+
+                    okRoute = lanOk ? { base: serverBase(lanOk.h), kind: 'lan', health: lanOk.health } : pubOk ? { base: pub.replace(/\/?$/, '/'), kind: 'internet', health: pubOk.health } : null;
+                    const firstBad = S.findIndex(s => s.st === 'bad');
+                    verdict = okRoute
+                        ? `Kết nối được máy chủ qua ${okRoute.kind === 'lan' ? 'mạng LAN ' + new URL(okRoute.base).host : 'Internet ' + new URL(okRoute.base).host}.` + (firstBad >= 0 ? ` Bước ${firstBad + 1} còn lỗi: ${S[firstBad].msg}` : '')
+                        : `Dừng ở bước ${firstBad + 1}: ${S[firstBad >= 0 ? firstBad : 2].msg}`;
+                }
+            }
+            if (!alive()) return;
+            const good = !!okRoute;
+            $('#ccVerdict').innerHTML = `<div class="ca-status ${good ? 'good' : 'bad'}" style="display:block;margin-top:.5rem"><b>${good ? '✅' : '❌'} ${esc(verdict)}</b>
+                ${good && !state.server ? '<div class="row-btns" style="margin-top:.4rem"><button class="btn sm primary" type="button" id="ccUse">🔌 Kết nối ngay</button></div>' : ''}</div>`;
+            if ($('#ccUse')) $('#ccUse').onclick = () => {
+                rememberRoutes(okRoute.health);
+                if (okRoute.kind === 'lan') addRoutesFromLink([new URL(okRoute.base).host]);
+                toast('🟢 Đang kết nối máy chủ…');
+                setTimeout(() => location.reload(), 600);
+            };
+            const report = ['Báo cáo kiểm tra kết nối LAN Chat',
+                'Thời điểm: ' + started.toLocaleString('vi-VN'),
+                'Trình duyệt: ' + ua,
+                'Trang: ' + location.origin + location.pathname,
+                'Mạng: ' + (navigator.onLine ? 'có mạng' : 'không có mạng') + (conn ? ` (${conn.type || '?'}, ${conn.effectiveType || '?'})` : ''),
+                'Trạng thái app: ' + (state.server ? (state.offline ? 'ngoại tuyến (dữ liệu đã lưu)' : 'đã kết nối máy chủ') : 'chưa kết nối máy chủ'),
+                ...S.map((s, i) => {
+                    const ips = s.html && /class="ips"/.test(s.html) ? '\n   ' + [...new DOMParser().parseFromString(s.html, 'text/html').querySelectorAll('.ips li')].map(li => li.textContent.trim()).join('\n   ') : '';
+                    return `${i + 1}. [${{ ok: 'OK', warn: 'CHÚ Ý', bad: 'LỖI', skip: 'BỎ QUA', wait: '—', run: '—' }[s.st]}] ${s.t}: ${s.msg}${ips}`;
+                }),
+                'Kết luận: ' + verdict].join('\n');
+            $('#ccCopy').disabled = false;
+            $('#ccAgain').disabled = false;
+            $('#ccAgain').onclick = connCheckModal;
+            $('#ccCopy').onclick = async () => {
+                try { await navigator.clipboard.writeText(report); toast('📋 Đã sao chép báo cáo. Dán vào Zalo hoặc Messenger để gửi quản trị viên'); }
+                catch (e) {
+                    $('#ccVerdict').insertAdjacentHTML('beforeend', `<textarea class="input mono" readonly style="width:100%;height:9rem;font-size:.7rem;margin-top:.5rem" onfocus="this.select()">${esc(report)}</textarea>`);
+                    toast('Nhấn Ctrl+C để sao chép báo cáo');
+                }
+            };
+        }
+
         // ============ Kết nối tới máy chủ LAN từ bản minh họa ============
         function connectModal(prefill) {
             let last = prefill || '';
@@ -3204,6 +3517,7 @@
         }
         document.addEventListener('click', e => {
             if (e.target.closest('[data-connect]')) connectModal();
+            if (e.target.closest('[data-conncheck]')) connCheckModal();
             if (e.target.closest('[data-discover]')) { connectModal(); runDiscovery(); }
         });
 

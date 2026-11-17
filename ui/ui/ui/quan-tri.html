@@ -40,6 +40,7 @@
         .tablewrap { overflow-x: auto; }
         #msg { min-height: 1.2em; }
         tr.deleted td { opacity: .6; }
+        .mono { font-family: 'JetBrains Mono', Consolas, monospace; }
     </style>
 </head>
 
@@ -65,6 +66,14 @@
                 <div class="stat"><span class="muted">Đã xóa (chờ phục hồi)</span><b id="sDeleted">0</b></div>
                 <div class="stat"><span class="muted">Nhóm tên giống nhau</span><b id="sSimilar">0</b></div>
             </div>
+            <section class="card" id="netCard">
+                <div class="row" style="justify-content:space-between;margin-bottom:.4rem">
+                    <h2 style="margin:0">📡 Địa chỉ máy chủ đang công bố</h2>
+                    <button id="netReload">↻ Kiểm tra lại</button>
+                </div>
+                <p class="muted">Địa chỉ đưa vào /api/health, may-chu.json và mã QR. Card mạng ảo (VMware, VirtualBox, Hyper‑V, WSL, Docker), 127.0.0.1 và 169.254.x.x bị lọc vì máy khác không tới được, chỉ làm chậm việc dò máy chủ.</p>
+                <div id="net"><p class="muted">Đang tải…</p></div>
+            </section>
             <section class="card">
                 <h2>🔎 Tài khoản có tên giống nhau</h2>
                 <p class="muted">Trùng khi bỏ dấu / hoa thường (ví dụ "Nguyễn Văn An" và "nguyen van an"), hoặc chỉ khác một ký tự. Kiểm tra xem có ai mạo danh hoặc tạo trùng không.</p>
@@ -154,7 +163,23 @@
         async function load() {
             try { data = await api('admin/users'); render(); }
             catch (e) { if (e.status === 401) return logout(); msg(e.message); }
+            loadNet();
         }
+        async function loadNet() {
+            const box = $('#net');
+            let n;
+            try { n = await api('admin/network'); } catch (e) { box.innerHTML = `<p class="muted">Không tải được: ${esc(e.message)}</p>`; return; }
+            const row = (x, ok) => `<tr><td class="mono"><b>${esc(x.ip)}</b>${ok ? ':' + n.port : ''}</td><td>${esc(x.nic || '—')}</td>
+                <td>${ok ? (x.ip === n.primary ? '<span class="tag on">Đang ra Internet · đứng đầu</span>' : '<span class="tag on">Công bố</span>') : `<span class="tag">${esc(x.reason)}</span>`}</td></tr>`;
+            box.innerHTML = `<div class="tablewrap"><table><thead><tr><th>Địa chỉ</th><th>Card mạng</th><th>Trạng thái</th></tr></thead><tbody>
+                ${n.published.map(x => row(x, true)).join('') || '<tr><td colspan="3" class="muted">Chưa có địa chỉ mạng LAN nào (máy chưa kết nối Wi‑Fi hoặc dây mạng)</td></tr>'}
+                ${n.filtered.map(x => row(x, false)).join('')}</tbody></table></div>
+                <p class="muted" style="margin-top:.6rem">${n.source === 'LANCHAT_LAN_IPS' ? `Đang dùng danh sách ghi đè bằng tay: <b class="mono">${esc(n.override)}</b>. Bỏ ghi đè: <span class="mono">setx LANCHAT_LAN_IPS ""</span> rồi khởi động lại máy chủ.`
+                    : n.source === 'psutil' ? 'Tên card lấy từ psutil. Lọc sai? Ghi đè bằng tay: <span class="mono">setx LANCHAT_LAN_IPS 192.168.x.x</span> rồi khởi động lại máy chủ.'
+                    : 'Chưa có thư viện psutil nên không biết tên card mạng, chưa lọc được card ảo. Cài bằng <span class="mono">pip install psutil</span>, hoặc ghi đè: <span class="mono">setx LANCHAT_LAN_IPS 192.168.x.x</span>.'}</p>
+                <p class="muted">🌐 Địa chỉ Internet: ${n.public ? `<b class="mono">${esc(n.public)}</b> ${n.fixed ? '<span class="tag on">Cố định</span>' : '<span class="tag lock">Link tạm, đổi mỗi lần chạy chia-se-internet.bat</span>'}` : 'chưa bật (chạy chia-se-internet.bat; muốn địa chỉ cố định thì chạy dia-chi-co-dinh.bat một lần)'}</p>`;
+        }
+        $('#netReload').onclick = loadNet;
         const CONFIRM = {
             delete: u => `Xóa tài khoản "${u.name}"? Tài khoản bị đăng xuất mọi máy, ẩn khỏi bạn bè. Phục hồi được trong ${data.restoreDays} ngày.`,
             purge: u => `XÓA VĨNH VIỄN tài khoản "${u.name}"? Không thể phục hồi và tên sẽ được người khác đăng ký lại.`,
@@ -198,11 +223,12 @@
             const st = await findServer();
             if (!st) { $('#loginBtn').disabled = true; return msg('Không kết nối được máy chủ. Hãy bật máy chủ trên laptop rồi tải lại trang.'); }
             $('#srvLbl').textContent = '🟢 ' + (base ? new URL(base).host : location.host);
+            // Máy chủ có thể ra Internet: trang quản trị chỉ dùng được ngay trên máy chủ
+            if (!st.local) { $('#loginBtn').disabled = true; return msg('Trang quản trị chỉ mở được ngay trên laptop máy chủ: http://localhost:8000/quan-tri.html'); }
             if (!st.setup) {
-                if (!st.local) { $('#loginBtn').disabled = true; return msg('Chưa đặt mật khẩu quản trị. Mở http://localhost:8000/quan-tri.html ngay trên laptop máy chủ để đặt lần đầu.'); }
                 setupMode = true;
                 $('#loginTitle').textContent = 'Đặt mật khẩu quản trị (lần đầu)';
-                $('#loginHint').textContent = 'Mật khẩu này dùng để vào trang quản trị từ mọi máy. Ít nhất 8 ký tự, hãy ghi nhớ cẩn thận.';
+                $('#loginHint').textContent = 'Mật khẩu này dùng để vào trang quản trị trên máy chủ. Ít nhất 8 ký tự, hãy ghi nhớ cẩn thận.';
                 $('#pw2').classList.remove('hidden'); $('#loginBtn').textContent = 'Đặt mật khẩu';
                 return;
             }

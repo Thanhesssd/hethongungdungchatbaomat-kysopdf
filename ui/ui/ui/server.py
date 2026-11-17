@@ -452,8 +452,8 @@ class Handler(BaseHTTPRequestHandler):
         url = urlparse(self.path)
         if url.path == "/api/health":
             return self.send_json({"ok": True, "ip": primary_ip(), "port": 443 if CLOUD else PORT, "id": server_id(),
-                                   "lan": [] if CLOUD else [f"{ip}:{PORT}" for ip in local_ips() if not ip.startswith("127.")],
-                                   "public": public_url(), "cloud": CLOUD})
+                                   "lan": [] if CLOUD else [f"{ip}:{PORT}" for ip in lan_ips()],
+                                   "public": public_url(), "fixed": public_fixed(), "cloud": CLOUD})
         if url.path == "/ca.crt":
             return self.serve_ca()
         if url.path == "/api/pair/status":
@@ -472,6 +472,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json({"setup": os.path.exists(ADMIN_PATH), "local": self.is_local()})
         if url.path == "/api/admin/users":
             return self.handle_admin_users()
+        if url.path == "/api/admin/network":
+            return self.handle_admin_network()
         if url.path == "/api/name-check":
             return self.handle_name_check(parse_qs(url.query))
         if url.path == "/api/avatar":
@@ -510,6 +512,8 @@ class Handler(BaseHTTPRequestHandler):
     def serve_static(self, path):
         # Chỉ phục vụ file giao diện ở thư mục gốc, không lộ mã Python hay thư mục data
         name = path.lstrip("/") or next(iter(glob.glob("*Chat LAN*.html", root_dir=BASE_DIR)), "index.html")
+        if name == "quan-tri.html" and not self.is_local():
+            return self.send_json({"error": "Trang quản trị chỉ mở được ngay trên máy chủ: http://localhost:8000/quan-tri.html"}, 403)
         full = os.path.join(BASE_DIR, name)
         ext = os.path.splitext(name)[1].lower()
         if (("/" in name or "\\" in name) and not ASSET_RE.match(name)) or ext not in STATIC_TYPES or not os.path.isfile(full):
@@ -648,9 +652,19 @@ class Handler(BaseHTTPRequestHandler):
         return self.client_address[0] == "127.0.0.1" and not self.headers.get("CF-Connecting-IP") and not CLOUD
 
     def admin_ok(self):
+        # Máy chủ có thể ra Internet qua đường hầm: trang quản trị chỉ dùng được ngay trên máy chủ (localhost)
+        if not self.is_local():
+            return False
         tok = self.headers.get("X-Admin", "")
         exp = self.store.admin_tokens.get(hashlib.sha256(tok.encode()).hexdigest()) if tok else None
         return bool(exp and exp > time.time())
+
+    def handle_admin_network(self):
+        if not self.admin_ok():
+            return self.send_json({"error": "Cần đăng nhập quản trị"}, 401)
+        net = lan_network()
+        self.send_json({**net, "primary": primary_ip(), "port": PORT, "public": public_url(), "fixed": public_fixed(),
+                        "override": os.environ.get("LANCHAT_LAN_IPS", "")})
 
     def handle_admin_setup(self, body):
         if not self.is_local():
@@ -665,6 +679,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_json({"ok": True})
 
     def handle_admin_login(self, body):
+        if not self.is_local():
+            return self.send_json({"error": "Trang quản trị chỉ mở được ngay trên máy chủ: http://localhost:8000/quan-tri.html"}, 403)
         key = ("#admin", self.client_ip())
         with self.store.cond:
             count, until = self.store.fails.get(key, (0, 0))
@@ -1331,12 +1347,70 @@ def primary_ip():
 
 
 def local_ips():
+    """Mọi IPv4 của máy (kể cả 127.0.0.1, 169.254.x.x, card ảo): dùng cho chứng chỉ HTTPS và kiểm tra Origin,
+    để truy cập từ chính máy chủ theo địa chỉ nào cũng được. Địa chỉ công bố cho máy khác xem lan_ips()."""
     ips = {"127.0.0.1", primary_ip()}
     try:
         ips.update(socket.gethostbyname_ex(socket.gethostname())[2])
     except OSError:
         pass
+    # Thêm IP từ psutil (card có dây, Wi‑Fi) để chứng chỉ phủ đủ; bỏ 169.254 vì địa chỉ tự cấp hay đổi, làm cấp lại chứng chỉ liên tục
+    ips.update(ip for _, ip in _interfaces() or [] if not ip.startswith("169.254."))
     return sorted(ips)
+
+
+# Card mạng ảo (máy ảo, WSL, Docker): máy khác trong mạng không tới được, công bố ra chỉ làm chậm việc dò máy chủ
+VIRTUAL_NIC = re.compile(r"vmware|virtualbox|vbox|vethernet|hyper-v|wsl|docker", re.I)
+
+
+def _interfaces():
+    """[(tên card mạng, IPv4)] nếu có thư viện psutil, không có thì None."""
+    try:
+        import psutil
+    except ImportError:
+        return None
+    try:
+        return [(name, a.address) for name, addrs in psutil.net_if_addrs().items()
+                for a in addrs if a.family == socket.AF_INET]
+    except Exception:
+        return None
+
+
+def lan_network():
+    """Địa chỉ mạng LAN công bố cho máy khác (/api/health, may-chu.json, mã QR) và địa chỉ đã lọc bỏ.
+    Trả về {"published": [{"ip", "nic"}], "filtered": [{"ip", "nic", "reason"}], "source"}.
+    IP của card đang ra Internet luôn đứng đầu. LANCHAT_LAN_IPS (cách nhau bởi dấu phẩy) ghi đè bằng tay."""
+    main = primary_ip()
+    nics = _interfaces()
+    names = {ip: name for name, ip in nics or []}
+    override = [x.strip() for x in os.environ.get("LANCHAT_LAN_IPS", "").split(",") if x.strip()]
+    if override:
+        published = [{"ip": ip, "nic": names.get(ip, "")} for ip in dict.fromkeys(override)]
+        filtered = [{"ip": ip, "nic": names.get(ip, ""), "reason": "Không có trong LANCHAT_LAN_IPS"}
+                    for ip in local_ips() if ip not in override and not ip.startswith("127.")]
+        return {"published": published, "filtered": filtered, "source": "LANCHAT_LAN_IPS"}
+    candidates = [(names.get(ip, ""), ip) for ip in local_ips()] if nics is None else list(nics)
+    published, filtered, seen = [], [], set()
+    for name, ip in sorted(candidates, key=lambda x: x[1] != main):
+        if ip in seen:
+            continue
+        seen.add(ip)
+        reason = ("Địa chỉ của chính máy này" if ip.startswith("127.") else
+                  "Địa chỉ tự cấp (169.254), card chưa có mạng" if ip.startswith("169.254.") else
+                  "Card mạng ảo" if ip != main and VIRTUAL_NIC.search(name) else None)
+        (filtered if reason else published).append({"ip": ip, "nic": name, **({"reason": reason} if reason else {})})
+    if not published and main != "127.0.0.1":
+        published.append({"ip": main, "nic": names.get(main, "")})
+    return {"published": published, "filtered": filtered, "source": "psutil" if nics is not None else "socket"}
+
+
+def lan_ips():
+    return [x["ip"] for x in lan_network()["published"]]
+
+
+def public_fixed():
+    """Địa chỉ Internet cố định (tên miền riêng qua Named Tunnel, hoặc máy chủ đám mây) thay vì link tạm trycloudflare."""
+    return bool(os.environ.get("LANCHAT_PUBLIC_URL", "").strip()) or CLOUD
 
 
 def ensure_certificate():
@@ -1460,8 +1534,12 @@ def main():
     threading.Thread(target=watch_ip, daemon=True).start()
     log(f"Máy chủ LAN Chat đang chạy ({len(Handler.store.users)} tài khoản):")
     log(f"  Trên máy này: http://localhost:{LOCAL_PORT}/")
-    for ip in local_ips():
-        log(f"  https://{ip}:{PORT}/")
+    net = lan_network()
+    for x in net["published"]:
+        log(f"  https://{x['ip']}:{PORT}/" + (f"   ({x['nic']})" if x["nic"] else ""))
+    hidden = [x for x in net["filtered"] if not x["ip"].startswith("127.")]
+    if hidden:
+        log("  Không công bố (máy khác không tới được): " + ", ".join(f"{x['ip']} ({x['nic'] or x['reason']})" for x in hidden))
     log(f"Cài chứng chỉ gốc một lần trên mỗi máy: https://{primary_ip()}:{PORT}/ca.crt")
     server.serve_forever()
 
