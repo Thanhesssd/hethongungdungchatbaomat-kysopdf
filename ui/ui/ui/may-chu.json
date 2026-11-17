@@ -1,7 +1,9 @@
 {
- "id": null,
+ "id": "8608170deb95bca4",
  "public": "https://fun-joshua-sql-automatically.trycloudflare.com",
  "fixed": false,
- "lan": [],
- "at": 1794903843
+ "lan": [
+  "172.20.10.3:8443"
+ ],
+ "at": 1794903938
 }
