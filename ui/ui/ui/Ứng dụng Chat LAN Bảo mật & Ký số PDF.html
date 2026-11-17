@@ -254,12 +254,12 @@
         .no-server p { margin: 0 0 .5rem; }
         .row-btns { display: flex; gap: .4rem; flex-wrap: wrap; }
         .cc-steps { list-style: none; padding: 0; margin: .4rem 0; display: grid; gap: .45rem; }
-        .cc-steps li { display: flex; gap: .6rem; padding: .55rem .7rem; border-radius: 10px; background: var(--panel-2); border: 1px solid var(--border); font-size: .82rem; }
-        .cc-steps li > i { font-style: normal; flex: none; width: 1.4rem; text-align: center; }
-        .cc-steps li.ok { border-color: color-mix(in srgb, var(--green) 35%, var(--border)); }
-        .cc-steps li.bad { border-color: color-mix(in srgb, var(--red) 45%, var(--border)); background: var(--red-soft); }
-        .cc-steps li.warn { border-color: color-mix(in srgb, var(--amber) 45%, var(--border)); }
-        .cc-steps li.skip { opacity: .55; }
+        .cc-steps > li { display: flex; gap: .6rem; padding: .55rem .7rem; border-radius: 10px; background: var(--panel-2); border: 1px solid var(--border); font-size: .82rem; }
+        .cc-steps > li > i { font-style: normal; flex: none; width: 1.4rem; text-align: center; }
+        .cc-steps > li.ok { border-color: color-mix(in srgb, var(--green) 35%, var(--border)); }
+        .cc-steps > li.bad { border-color: color-mix(in srgb, var(--red) 45%, var(--border)); background: var(--red-soft); }
+        .cc-steps > li.warn { border-color: color-mix(in srgb, var(--amber) 45%, var(--border)); }
+        .cc-steps > li.skip { opacity: .55; }
         .cc-steps .ips { margin: .3rem 0 0; padding: 0; list-style: none; font-family: 'JetBrains Mono', monospace; font-size: .76rem; }
         .cc-steps .hint { margin-top: .35rem; font-weight: 400; }
         .is-mobile .desktop-only { display: none !important; }
@@ -3394,34 +3394,44 @@
                     const sameSrv = r => r.ok && (!wantId || !r.health.id || r.health.id === wantId);
 
                     // Bước 3: từng IP mạng LAN
-                    let lanOk = null;
+                    let lanOk = null, serverOff = false;
                     if (!lanRes) {
                         set(2, 'skip', cellular ? 'Thiết bị đang dùng 4G/5G: chỉ dùng được link Internet, không dùng được IP mạng LAN.' : 'Máy chủ không công bố IP mạng LAN (máy chủ đám mây).');
                         set(3, 'skip', 'Không có IP mạng LAN để kiểm tra');
                     } else {
                         lanOk = lanRes.find(sameSrv);
-                        const line = r => `<li>${sameSrv(r) ? '🟢' : r.ok ? '🟡' : '🔴'} ${esc(r.h)} — ${sameSrv(r) ? `trả lời (${r.ms} ms)` : r.ok ? 'trả lời nhưng là máy chủ khác' : r.kind === 'timeout' ? 'không tới được (hết 3 giây)' : r.kind === 'wrong' ? 'có máy trả lời nhưng không phải máy chủ LAN Chat' : 'bị từ chối ngay'}</li>`;
+                        // IP chỉ còn trong bộ nhớ trình duyệt (máy chủ không còn công bố) thì ghi rõ là địa chỉ cũ
+                        const announced = new Set(dir && !dir.cloud ? dir.lan || [] : []);
+                        const old = r => announced.size && !announced.has(r.h) ? ' (địa chỉ cũ đã lưu)' : '';
+                        const line = r => `<li>${sameSrv(r) ? '🟢' : r.ok ? '🟡' : '🔴'} ${esc(r.h)}${old(r)} — ${sameSrv(r) ? `trả lời (${r.ms} ms)` : r.ok ? 'trả lời nhưng là máy chủ khác' : r.kind === 'timeout' ? 'không tới được (hết 3 giây)' : r.kind === 'wrong' ? 'có máy trả lời nhưng không phải máy chủ LAN Chat' : 'bị từ chối ngay'}</li>`;
                         set(2, lanOk ? 'ok' : 'warn', lanOk ? `Máy chủ trả lời qua ${lanOk.h}` : 'Không IP nào trả lời', `<ul class="ips">${lanRes.map(line).join('')}</ul>`);
 
                         // Bước 4: IP không trả lời là do chứng chỉ hay do mạng
                         if (lanOk) set(3, 'ok', 'Trình duyệt đã tin chứng chỉ, đường mạng LAN dùng được.');
                         else {
                             const refused = lanRes.filter(r => r.kind === 'refused'), timeout = lanRes.filter(r => r.kind === 'timeout');
-                            const tips = [];
-                            if (/Chrome\//.test(ua) && !/Edg\//.test(ua) && refused.length) tips.push('Chrome có thể đang chặn quyền mạng cục bộ: bấm biểu tượng ổ khóa bên trái thanh địa chỉ, mục Cài đặt trang web, cho phép <b>Mạng cục bộ</b> (Thiết bị trên mạng cục bộ), rồi tải lại trang.');
-                            if (timeout.length && !refused.length) tips.push('Wi‑Fi có thể đang cách ly các thiết bị (Wi‑Fi trường học, quán cà phê, Wi‑Fi khách): dùng điểm phát từ điện thoại cho cả hai máy, hoặc dùng link Internet.');
-                            if (timeout.length) tips.push('Kiểm tra thiết bị này và máy chủ dùng chung một Wi‑Fi, máy chủ đang bật và không ngủ. Tường lửa chặn cổng 8443: chạy cai-dat-may-chu.bat trên máy chủ.');
-                            if (conn && conn.type && conn.type !== 'wifi' && conn.type !== 'ethernet') tips.push('Thiết bị không dùng Wi‑Fi: chỉ dùng được link Internet, không dùng được IP mạng LAN.');
-                            const tipHtml = tips.length ? `<ul class="hint" style="margin:.35rem 0 0;padding-left:1.1rem">${tips.map(t => `<li>${t}</li>`).join('')}</ul>` : '';
                             // Từ chối ngay có thể do chứng chỉ, quyền mạng cục bộ, hoặc máy chủ chưa bật chương trình (cổng đóng).
                             // Link Internet cũng chết hoặc địa chỉ lâu không cập nhật thì nhiều khả năng máy chủ đang tắt.
                             const down = (pub && !pubRes?.ok) || stale;
+                            // Mọi IP đều hết giờ và link Internet cũng chết: lỗi nằm ở máy chủ (đang tắt, ngủ, mất mạng), không phải ở thiết bị này
+                            serverOff = !refused.length && down && (!pub || !pubRes?.ok);
+                            const tips = [];
+                            if (serverOff) tips.push('Máy này chính là laptop máy chủ? Bấm đúp <b>chay-may-chu.bat</b> trong thư mục app, rồi tải lại trang này.');
+                            if (/Chrome\//.test(ua) && !/Edg\//.test(ua) && refused.length) tips.push('Chrome có thể đang chặn quyền mạng cục bộ: bấm biểu tượng ổ khóa bên trái thanh địa chỉ, mục Cài đặt trang web, cho phép <b>Mạng cục bộ</b> (Thiết bị trên mạng cục bộ), rồi tải lại trang.');
+                            if (timeout.length && !refused.length && !serverOff) tips.push('Wi‑Fi có thể đang cách ly các thiết bị (Wi‑Fi trường học, quán cà phê, Wi‑Fi khách): dùng điểm phát từ điện thoại cho cả hai máy, hoặc dùng link Internet.');
+                            if (timeout.length) tips.push(serverOff
+                                ? 'Máy chủ đã bật mà vẫn lỗi: kiểm tra thiết bị này và máy chủ dùng chung một Wi‑Fi. Tường lửa chặn cổng 8443: chạy cai-dat-may-chu.bat trên máy chủ.'
+                                : 'Kiểm tra thiết bị này và máy chủ dùng chung một Wi‑Fi, máy chủ đang bật và không ngủ. Tường lửa chặn cổng 8443: chạy cai-dat-may-chu.bat trên máy chủ.');
+                            if (conn && conn.type && conn.type !== 'wifi' && conn.type !== 'ethernet') tips.push('Thiết bị không dùng Wi‑Fi: chỉ dùng được link Internet, không dùng được IP mạng LAN.');
+                            const tipHtml = tips.length ? `<ul class="hint" style="margin:.35rem 0 0;padding-left:1.1rem">${tips.map(t => `<li>${t}</li>`).join('')}</ul>` : '';
                             if (refused.length) {
                                 const b = serverBase(refused[0].h);
                                 set(3, 'bad', (down ? `Link Internet cũng không trả lời nên có thể máy chủ đang tắt: bật chay-may-chu.bat trên máy chủ. Nếu máy chủ đang bật: ` : '')
                                     + `${refused[0].h} từ chối kết nối ngay, thường do trình duyệt chưa tin chứng chỉ của máy chủ (hoặc chặn quyền mạng cục bộ). Mở địa chỉ máy chủ, chọn Nâng cao → Tiếp tục, hoặc cài chứng thư gốc một lần, rồi bấm Kiểm tra lại.`,
                                     `<div class="row-btns hint"><a class="btn sm primary" href="${esc(b)}" target="_blank" rel="noopener">🔓 Mở và tin chứng chỉ</a><a class="btn sm" href="${esc(b)}#root-ca" target="_blank" rel="noopener">🛡️ Cài chứng thư gốc</a></div>${tipHtml}`);
-                            } else set(3, 'bad', timeout.length ? 'Do mạng: thiết bị này không tới được máy chủ qua mạng LAN.' : 'Có máy trả lời ở các IP này nhưng không phải máy chủ LAN Chat (IP cũ hoặc nhập nhầm).', tipHtml);
+                            } else set(3, 'bad', serverOff
+                                ? `Máy chủ đang tắt, đang ngủ hoặc mất mạng: không IP mạng LAN nào trả lời, link Internet cũng không${stale ? `, và địa chỉ máy chủ đã ${agoText(age).replace(' trước', '')} không cập nhật` : ''}. Trên laptop máy chủ: bật chay-may-chu.bat, rồi chạy chia-se-internet.bat để có link Internet mới, và để máy không ngủ.`
+                                : timeout.length ? 'Do mạng: thiết bị này không tới được máy chủ qua mạng LAN.' :'Có máy trả lời ở các IP này nhưng không phải máy chủ LAN Chat (IP cũ hoặc nhập nhầm).', tipHtml);
                         }
                     }
 
@@ -3438,6 +3448,7 @@
                     const firstBad = S.findIndex(s => s.st === 'bad');
                     verdict = okRoute
                         ? `Kết nối được máy chủ qua ${okRoute.kind === 'lan' ? 'mạng LAN ' + new URL(okRoute.base).host : 'Internet ' + new URL(okRoute.base).host}.` + (firstBad >= 0 ? ` Bước ${firstBad + 1} còn lỗi: ${S[firstBad].msg}` : '')
+                        : serverOff ? 'Máy chủ đang tắt hoặc mất mạng. Người quản lý máy chủ cần bật chay-may-chu.bat và chia-se-internet.bat trên laptop máy chủ.'
                         : `Dừng ở bước ${firstBad + 1}: ${S[firstBad >= 0 ? firstBad : 2].msg}`;
                 }
             }
